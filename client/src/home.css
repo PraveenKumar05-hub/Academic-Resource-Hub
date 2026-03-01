@@ -1,0 +1,256 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#root {
+    width: 100%;
+    height: 100%;
+}
+
+.container {
+    width: 100vw;
+    height: 100vh;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 20px;
+    overflow: auto;
+}
+
+.top-left-logo {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 20;
+}
+
+.top-right-logos {
+    position: fixed;
+    top: 10px;
+    right: 20px;
+    display: flex;
+    gap: 10px;
+    z-index: 20;
+}
+
+.corner-logo {
+    width: auto;
+    max-width: 140px;
+    height: 90px;
+    object-fit: contain;
+}
+
+.left-corner-logo {
+    max-width: 280px;
+    height: 130px;
+}
+
+.content {
+    text-align: center;
+    max-width: 900px;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes glow {
+    0%, 100% {
+        text-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+    }
+    50% {
+        text-shadow: 0 0 20px rgba(52, 152, 219, 0.8);
+    }
+}
+
+.title {
+    font-size: 4.5rem;
+    font-weight: 900;
+    color: #ecf0f1;
+    margin-bottom: 15px;
+    letter-spacing: 2px;
+    animation: slideDown 1s ease-out, glow 3s ease-in-out infinite;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.subtitle {
+    font-size: 1.2rem;
+    color: #bdc3c7;
+    margin-bottom: 60px;
+    font-weight: 300;
+    letter-spacing: 0.5px;
+}
+
+.buttons-container {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 50px;
+}
+
+.login-btn {
+    padding: 25px 45px;
+    font-size: 1.2rem;
+    font-weight: 700;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.4s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    min-width: 160px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-icon {
+    font-size: 2.5rem;
+    position: relative;
+    z-index: 2;
+}
+
+.btn-text {
+    position: relative;
+    z-index: 2;
+}
+
+.admin-btn {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    border-color: #c0392b;
+}
+
+.admin-btn:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 35px rgba(231, 76, 60, 0.5);
+    border-color: #fff;
+}
+
+.faculty-btn {
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+    border-color: #2980b9;
+}
+
+.faculty-btn:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 35px rgba(52, 152, 219, 0.5);
+    border-color: #fff;
+}
+
+.student-btn {
+    background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+    color: white;
+    border-color: #229954;
+}
+
+.student-btn:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 35px rgba(39, 174, 96, 0.5);
+    border-color: #fff;
+}
+
+@media (max-width: 768px) {
+    .top-left-logo {
+        top: 14px;
+        left: 14px;
+    }
+
+    .top-right-logos {
+        top: 14px;
+        right: 14px;
+        gap: 8px;
+    }
+
+    .corner-logo {
+        max-width: 100px;
+        height: 60px;
+    }
+
+    .left-corner-logo {
+        max-width: 170px;
+        height: 92px;
+    }
+
+    .title {
+        font-size: 3rem;
+        margin-bottom: 10px;
+    }
+
+    .subtitle {
+        margin-bottom: 40px;
+    }
+
+    .buttons-container {
+        gap: 15px;
+    }
+
+    .login-btn {
+        padding: 18px 35px;
+        font-size: 1rem;
+        min-width: 130px;
+    }
+
+    .btn-icon {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .top-left-logo {
+        top: 10px;
+        left: 10px;
+    }
+
+    .top-right-logos {
+        top: 10px;
+        right: 10px;
+        gap: 6px;
+    }
+
+    .corner-logo {
+        max-width: 78px;
+        height: 48px;
+    }
+
+    .left-corner-logo {
+        max-width: 130px;
+        height: 72px;
+    }
+
+    .title {
+        font-size: 2rem;
+    }
+
+    .buttons-container {
+        flex-direction: column;
+    }
+
+    .login-btn {
+        width: 100%;
+    }
+}
