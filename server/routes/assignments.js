@@ -1,0 +1,376 @@
+const express = require('express');
+const router = express.Router();
+const http = require('http');
+const https = require('https');
+const Assignment = require('../models/Assignment');
+const Notification = require('../models/Notification');
+const { verifyToken, requireRole } = require('../middleware/auth');
+const multer = require('multer');
+const { cloudinary, uploadBuffer } = require('../config/cloudinary');
+
+const upload = multer();
+
+function streamDownloadFromUrl(sourceUrl, res, downloadName, redirectCount = 0) {
+  if (redirectCount > 5) {
+    res.status(502).json({ message: 'Too many redirects while fetching file' });
+    return;
+  }
+
+  const client = sourceUrl.startsWith('https') ? https : http;
+
+  function getCloudinaryFallbackUrl(urlValue, filename) {
+    try {
+      const parsed = new URL(urlValue);
+      if (!parsed.hostname.includes('res.cloudinary.com')) return null;
+
+      const match = parsed.pathname.match(/\/(image|raw|video)\/upload\/(?:v\d+\/)?(.+)$/);
+      if (!match) return null;
+
+      const resourceType = match[1];
+      const assetPath = match[2];
+      const cleanAssetPath = assetPath.replace(/^\/+/, '');
+
+      const lastDot = cleanAssetPath.lastIndexOf('.');
+      const hasExt = lastDot > cleanAssetPath.lastIndexOf('/');
+      const publicId = hasExt ? cleanAssetPath.slice(0, lastDot) : cleanAssetPath;
+      const format = hasExt ? cleanAssetPath.slice(lastDot + 1) : undefined;
+
+      if (!publicId) return null;
+
+      return cloudinary.utils.private_download_url(publicId, format, {
+        resource_type: resourceType,
+        type: 'upload',
+        attachment: filename || 'download',
+        expires_at: Math.floor(Date.now() / 1000) + 60 * 60
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const request = client.get(sourceUrl, (upstream) => {
+    if ([301, 302, 303, 307, 308].includes(upstream.statusCode) && upstream.headers.location) {
+      const nextUrl = new URL(upstream.headers.location, sourceUrl).toString();
+      upstream.resume();
+      return streamDownloadFromUrl(nextUrl, res, downloadName, redirectCount + 1);
+    }
+
+    if (upstream.statusCode !== 200) {
+      upstream.resume();
+      if (!res.headersSent) {
+        const signedUrl = getCloudinaryFallbackUrl(sourceUrl, downloadName);
+        return res.redirect(signedUrl || sourceUrl);
+      }
+      return;
+    }
+
+    const safeName = String(downloadName || 'download').replace(/[\r\n"]/g, '');
+    const encodedName = encodeURIComponent(safeName);
+
+    res.setHeader('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
+
+    upstream.pipe(res);
+  });
+
+  request.on('error', () => {
+    if (!res.headersSent) {
+      const signedUrl = getCloudinaryFallbackUrl(sourceUrl, downloadName);
+      res.redirect(signedUrl || sourceUrl);
+    }
+  });
+}
+
+/* ======================================================
+   CREATE ASSIGNMENT WITH FILE UPLOAD
+====================================================== */
+router.post(
+  '/upload',
+  verifyToken,
+  requireRole('faculty', 'admin'),
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      if (!req.file)
+        return res.status(400).json({ message: 'No file uploaded' });
+
+      const {
+        title,
+        description,
+        department,
+        year,
+        section,
+        subject,
+        dueDate
+      } = req.body;
+
+      console.log('Creating assignment with file:', { title, subject, department, year, section });
+
+      const result = await uploadBuffer(req.file.buffer, {
+        resource_type: 'auto',
+        type: 'upload',
+        folder: `arh/assignments/${department}`
+      });
+
+      const assignment = new Assignment({
+        title: title || req.file.originalname,
+        description,
+        department,
+        year: Number(year),                        // ✅ FIXED
+        section: String(section).toUpperCase(),    // ✅ Normalize
+        subject,
+        dueDate,
+        fileUrl: result.secure_url,
+        filename: req.file.originalname,
+        createdBy: req.user._id
+      });
+
+      console.log('Assignment before save:', assignment);
+      await assignment.save();
+      console.log('Assignment saved successfully:', assignment._id);
+
+      res.json({ assignment, message: 'Assignment created successfully' });
+
+    } catch (err) {
+      console.error('Error creating assignment:', err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+
+/* ======================================================
+   GET ASSIGNMENTS (Role Based + Pagination)
+====================================================== */
+router.get('/', verifyToken, async (req, res) => {
+  try {
+    const user = req.user;
+    let filter = {};
+
+    console.log('Fetching assignments for user:', { userId: user._id, role: user.role, dept: user.department, year: user.year, section: user.section });
+
+    // 🔹 STUDENT → Dept + Year + Section
+    if (user.role === 'student') {
+      filter = {
+        department: user.department,
+        year: Number(user.year),                   // ✅ FIXED
+        section: String(user.section).toUpperCase()
+      };
+    }
+
+    // 🔹 FACULTY → Dept only
+    else if (user.role === 'faculty') {
+      filter = {
+        department: user.department
+      };
+    }
+
+    // 🔹 ADMIN → All assignments
+    else if (user.role === 'admin') {
+      filter = {};
+    }
+
+    const { subject, page = 1, limit = 20 } = req.query;
+
+    if (subject) {
+      filter.subject = subject;
+    }
+
+    console.log('Filter applied:', filter);
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const assignments = await Assignment.find(filter)
+      .sort({ createdAt: -1 })   // Latest first
+      .skip(skip)
+      .limit(Number(limit))
+      .populate('createdBy', 'name email');
+
+    const total = await Assignment.countDocuments(filter);
+
+    console.log(`Found ${assignments.length} assignments, total: ${total}`);
+    console.log('Assignments:', assignments.map(a => ({ _id: a._id, title: a.title, fileUrl: a.fileUrl })));
+
+    res.json({
+      assignments,
+      page: Number(page),
+      limit: Number(limit),
+      total
+    });
+
+  } catch (err) {
+    console.error('Error fetching assignments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ======================================================
+   DOWNLOAD ASSIGNMENT FILE (Role Based)
+====================================================== */
+router.get('/:id/download', verifyToken, async (req, res) => {
+  try {
+    const assignment = await Assignment.findById(req.params.id);
+
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
+    }
+
+    if (!assignment.fileUrl) {
+      return res.status(404).json({ message: 'No attachment available for this assignment' });
+    }
+
+    if (req.user.role === 'student') {
+      const allowed =
+        assignment.department === req.user.department &&
+        Number(assignment.year) === Number(req.user.year) &&
+        String(assignment.section).toUpperCase() === String(req.user.section).toUpperCase();
+
+      if (!allowed) {
+        return res.status(403).json({ message: 'Not authorized to download this assignment' });
+      }
+    } else if (req.user.role === 'faculty') {
+      if (assignment.department !== req.user.department) {
+        return res.status(403).json({ message: 'Cannot download assignment from different department' });
+      }
+    }
+
+    const originalName = assignment.filename || assignment.title || 'assignment-file';
+    return streamDownloadFromUrl(assignment.fileUrl, res, originalName);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+/* ======================================================
+   ACKNOWLEDGE ASSIGNMENT (Student)
+====================================================== */
+router.post(
+  '/:id/acknowledge',
+  verifyToken,
+  requireRole('student'),
+  async (req, res) => {
+    try {
+      const assignment = await Assignment.findById(req.params.id);
+
+      if (!assignment)
+        return res.status(404).json({ message: 'Assignment not found' });
+
+      const allowed =
+        assignment.department === req.user.department &&
+        Number(assignment.year) === Number(req.user.year) &&
+        String(assignment.section).toUpperCase() === String(req.user.section).toUpperCase();
+
+      if (!allowed) {
+        return res.status(403).json({ message: 'Not authorized to acknowledge this assignment' });
+      }
+
+      const already = assignment.acknowledgements.find(
+        a => a.student.toString() === req.user._id.toString()
+      );
+
+      if (already)
+        return res.status(400).json({ message: 'Already acknowledged' });
+
+      assignment.acknowledgements.push({
+        student: req.user._id,
+        method: req.body.method || 'online'
+      });
+
+      await assignment.save();
+
+      if (assignment.createdBy && assignment.createdBy.toString() !== req.user._id.toString()) {
+        const studentName = req.user.name || 'Student';
+        const studentYear = req.user.year ?? assignment.year;
+        const studentSection = req.user.section || assignment.section || '-';
+        const assignmentSubject = assignment.subject || '-';
+
+        await Notification.create({
+          user: assignment.createdBy,
+          title: 'Assignment Acknowledged',
+          message: `Name: ${studentName}, Year: ${studentYear}, Section: ${studentSection}, Subject: ${assignmentSubject}`,
+          studentName,
+          studentYear: Number(studentYear),
+          studentSection,
+          subject: assignmentSubject,
+          type: 'info',
+          assignment: assignment._id,
+          department: assignment.department,
+          recipientRole: 'faculty',
+          createdBy: req.user._id
+        });
+      }
+
+      res.json({ message: 'Acknowledged successfully' });
+
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+
+/* ======================================================
+   GET ACKNOWLEDGEMENTS (Faculty/Admin)
+====================================================== */
+router.get(
+  '/:id/acknowledgements',
+  verifyToken,
+  requireRole('faculty', 'admin'),
+  async (req, res) => {
+    try {
+      const assignment = await Assignment.findById(req.params.id)
+        .populate('acknowledgements.student', 'name email');
+
+      if (!assignment)
+        return res.status(404).json({ message: 'Assignment not found' });
+
+      res.json({
+        acknowledgements: assignment.acknowledgements
+      });
+
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+/* ======================================================
+   DELETE ASSIGNMENT (Faculty/Admin)
+====================================================== */
+router.delete(
+  '/:id',
+  verifyToken,
+  requireRole('faculty', 'admin'),
+  async (req, res) => {
+    try {
+      console.log('\n🗑️ DELETE /assignments/:id');
+      console.log('Assignment ID:', req.params.id);
+      console.log('User:', { role: req.user.role, dept: req.user.department });
+
+      const assignment = await Assignment.findById(req.params.id);
+
+      if (!assignment) {
+        console.log('❌ Assignment not found');
+        return res.status(404).json({ message: 'Assignment not found' });
+      }
+
+      // Check if user is from same department or is admin
+      if (req.user.role !== 'admin' && assignment.department !== req.user.department) {
+        console.log('❌ Unauthorized: Different department');
+        return res.status(403).json({ message: 'Cannot delete assignment from different department' });
+      }
+
+      const deletedAssignment = await Assignment.findByIdAndDelete(req.params.id);
+      console.log('✓ Assignment deleted:', deletedAssignment.title);
+
+      res.json({ message: 'Assignment deleted successfully ✓', assignment: deletedAssignment });
+
+    } catch (err) {
+      console.error('❌ Delete error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+module.exports = router;
