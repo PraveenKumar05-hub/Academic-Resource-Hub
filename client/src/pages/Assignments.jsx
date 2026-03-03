@@ -23,6 +23,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DateRangeIcon from '@mui/icons-material/DateRange'
 import DownloadIcon from '@mui/icons-material/Download'
 import DeleteIcon from '@mui/icons-material/Delete'
+import EditIcon from '@mui/icons-material/Edit'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import api from '../api'
@@ -52,9 +53,13 @@ export default function Assignments() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [deletingId, setDeletingId] = useState('')
+  const [updatingDueDateId, setUpdatingDueDateId] = useState('')
   const [acknowledgingId, setAcknowledgingId] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [subjectOptions, setSubjectOptions] = useState([])
+  const [editDueDateOpen, setEditDueDateOpen] = useState(false)
+  const [editDueDateValue, setEditDueDateValue] = useState('')
+  const [editingAssignment, setEditingAssignment] = useState(null)
   const [yearConfigs, setYearConfigs] = useState({
     year1: { subjects: [], sections: [] },
     year2: { subjects: [], sections: [] },
@@ -198,7 +203,18 @@ export default function Assignments() {
       })
       console.log('Assignment created:', res.data)
 
-      setSuccess('Assignment created successfully!')
+      const summary = res?.data?.immediateAlertSummary
+      if (summary) {
+        const sentCount = Number(summary?.email?.sent || 0)
+        const failedCount = Number(summary?.email?.failed || 0) + Number(summary?.email?.invalid_email || 0)
+        const skippedCount = Number(summary?.email?.skipped_no_email || 0)
+        const disabledCount = Number(summary?.email?.disabled || 0)
+        setSuccess(
+          `Assignment created successfully! Immediate email alerts: ${summary.notificationsCreated}/${summary.totalStudentsMatched}, sent: ${sentCount}, failed: ${failedCount}, no email: ${skippedCount}, disabled: ${disabledCount}.`
+        )
+      } else {
+        setSuccess('Assignment created successfully!')
+      }
 
       // Reset form
       setTitle('')
@@ -301,6 +317,54 @@ export default function Assignments() {
       )
     } finally {
       setAcknowledgingId('')
+    }
+  }
+
+  function openDueDateEditor(assignment) {
+    if (!assignment?._id) return
+    setEditingAssignment(assignment)
+    const formattedDate = assignment?.dueDate
+      ? new Date(assignment.dueDate).toISOString().split('T')[0]
+      : ''
+    setEditDueDateValue(formattedDate)
+    setEditDueDateOpen(true)
+  }
+
+  async function updateAssignmentDueDate() {
+    if (!editingAssignment?._id || !editDueDateValue) {
+      setError('Please select a due date')
+      return
+    }
+
+    setUpdatingDueDateId(editingAssignment._id)
+    try {
+      const res = await api.put(`/assignments/${editingAssignment._id}/due-date`, {
+        dueDate: editDueDateValue
+      })
+
+      const sync = res?.data?.syncSummary
+      if (sync) {
+        setSuccess(
+          `Due date updated! Synced ${sync.notificationsSynced}/${sync.totalStudentsMatched} class students by email. Sent: ${sync.email?.sent || 0}, failed: ${(sync.email?.failed || 0) + (sync.email?.invalid_email || 0)}, no email: ${sync.email?.skipped_no_email || 0}, disabled: ${sync.email?.disabled || 0}.`
+        )
+      } else {
+        setSuccess('Due date updated successfully!')
+      }
+
+      setError('')
+      setEditDueDateOpen(false)
+      setEditingAssignment(null)
+      setEditDueDateValue('')
+      await fetchAssignments(page, subjectFilter)
+      setTimeout(() => setSuccess(''), 5000)
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        'Failed to update due date'
+      )
+    } finally {
+      setUpdatingDueDateId('')
     }
   }
 
@@ -460,6 +524,53 @@ export default function Assignments() {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={editDueDateOpen}
+        onClose={() => {
+          if (updatingDueDateId) return
+          setEditDueDateOpen(false)
+          setEditingAssignment(null)
+          setEditDueDateValue('')
+        }}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Edit Assignment Due Date</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+            {editingAssignment?.title || 'Assignment'}
+          </Typography>
+          <TextField
+            type="date"
+            fullWidth
+            label="Due Date"
+            value={editDueDateValue}
+            onChange={(e) => setEditDueDateValue(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setEditDueDateOpen(false)
+              setEditingAssignment(null)
+              setEditDueDateValue('')
+            }}
+            disabled={Boolean(updatingDueDateId)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={updateAssignmentDueDate}
+            disabled={Boolean(updatingDueDateId)}
+          >
+            {updatingDueDateId ? 'Updating...' : 'Update Due Date'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ASSIGNMENT LIST */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
         <TextField
@@ -536,6 +647,13 @@ export default function Assignments() {
                     />
                   )}
 
+                  {a.dueDateUpdatedAt && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
+                      Due date last updated on {new Date(a.dueDateUpdatedAt).toLocaleString()}
+                      {a?.dueDateUpdatedBy?.name ? ` by ${a.dueDateUpdatedBy.name}` : ''}
+                    </Typography>
+                  )}
+
                   <Box sx={{ mt: 2 }}>
                     {a.fileUrl ? (
                       <Button
@@ -551,6 +669,18 @@ export default function Assignments() {
                       <Typography variant="caption" sx={{ color: '#999' }}>
                         No file attached
                       </Typography>
+                    )}
+
+                    {(user?.role === 'faculty' || user?.role === 'admin') && (
+                      <Button
+                        size="small"
+                        startIcon={<EditIcon />}
+                        onClick={() => openDueDateEditor(a)}
+                        variant="outlined"
+                        sx={{ ml: 1 }}
+                      >
+                        Edit Due Date
+                      </Button>
                     )}
 
                     {(user?.role === 'faculty' || user?.role === 'admin') && (

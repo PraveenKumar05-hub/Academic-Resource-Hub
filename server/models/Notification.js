@@ -17,6 +17,13 @@ const NotificationSchema = new mongoose.Schema({
   },
   whatsappError: { type: String },
   whatsappSentAt: { type: Date },
+  emailStatus: {
+    type: String,
+    enum: ['not_attempted', 'sent', 'failed', 'skipped_no_email', 'disabled', 'invalid_email'],
+    default: 'not_attempted'
+  },
+  emailError: { type: String },
+  emailSentAt: { type: Date },
   type: { type: String, enum: ['announcement', 'urgent', 'info'], default: 'info' },
   assignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment' },
   department: { type: String },

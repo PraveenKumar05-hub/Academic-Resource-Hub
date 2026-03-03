@@ -3,10 +3,23 @@ const router = express.Router();
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { verifyToken, requireRole } = require('../middleware/auth');
-const { sendWhatsAppMessage } = require('../utils/whatsapp');
+const { sendReminderEmail } = require('../utils/reminderEmail');
 
 function isWebsiteManager(user) {
   return user?.role === 'admin' && !user?.department
+}
+
+function normalizeDepartment(value) {
+  return String(value || '').trim().toUpperCase()
+}
+
+function isReminderLog(record) {
+  const stage = String(record?.reminderStage || '')
+  const title = String(record?.title || '')
+  return (
+    ['DUE_TOMORROW', 'DUE_TODAY'].includes(stage) ||
+    /^Assignment Reminder - Due (Tomorrow|Today)$/i.test(title)
+  )
 }
 
 // Create and broadcast notification (department admin/HOD, admin, faculty)
@@ -53,54 +66,71 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
   }
 });
 
-// Send test WhatsApp reminder to a student
-router.post('/test-whatsapp', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
+// Send test reminder email to a student
+router.post('/test-email', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
   try {
-    const { studentId, message, subject, dueDate } = req.body || {}
+    const { studentId, email, message, subject, dueDate } = req.body || {}
 
-    if (!studentId) {
-      return res.status(400).json({ message: 'studentId is required' })
+    if (!studentId && !email) {
+      return res.status(400).json({ message: 'studentId or email is required' })
     }
 
-    const student = await User.findById(studentId)
-    if (!student || student.role !== 'student') {
-      return res.status(404).json({ message: 'Student not found' })
-    }
+    let targetEmail = String(email || '').trim().toLowerCase()
+    let student = null
 
-    if (!isWebsiteManager(req.user)) {
-      if (!req.user.department || student.department !== req.user.department) {
-        return res.status(403).json({ message: 'Cannot send WhatsApp to student from different department' })
+    if (studentId) {
+      student = await User.findById(studentId)
+      if (!student || student.role !== 'student') {
+        return res.status(404).json({ message: 'Student not found' })
       }
+
+      if (!isWebsiteManager(req.user)) {
+        if (
+          !req.user.department ||
+          normalizeDepartment(student.department) !== normalizeDepartment(req.user.department)
+        ) {
+          return res.status(403).json({ message: 'Cannot send reminder email to student from different department' })
+        }
+      }
+
+      targetEmail = String(student.email || '').trim().toLowerCase()
     }
 
-    if (!student.phone) {
-      return res.status(400).json({ message: 'Selected student has no phone number' })
+    if (!targetEmail) {
+      return res.status(400).json({ message: student ? 'Selected student has no email address' : 'Email is required' })
     }
 
     const dueDateText = dueDate ? new Date(dueDate).toLocaleDateString() : new Date().toLocaleDateString()
     const defaultMessage = `Reminder: Your assignment for subject ${subject || 'N/A'} is due on ${dueDateText}.`
     const finalMessage = String(message || '').trim() || defaultMessage
+    const finalSubject = `Assignment Reminder: ${subject || 'N/A'}`
 
-    const sendResult = await sendWhatsAppMessage(student.phone, finalMessage)
+    const sendResult = await sendReminderEmail(targetEmail, finalSubject, finalMessage, `<p>${finalMessage}</p>`)
+
+    if (!sendResult?.sent) {
+      const reason = sendResult?.reason || 'unknown'
+      if (reason === 'email_not_configured') {
+        return res.status(400).json({ message: 'SMTP email is not configured' })
+      }
+      if (reason === 'invalid_email') {
+        return res.status(400).json({ message: 'Invalid email format' })
+      }
+      return res.status(500).json({ message: 'Failed to send test reminder email' })
+    }
 
     return res.json({
-      message: 'Test WhatsApp sent successfully',
-      to: student.phone,
-      twilio: {
-        sid: sendResult?.sid,
-        status: sendResult?.status,
-        from: sendResult?.from,
-        to: sendResult?.to
-      },
-      student: {
-        id: student._id,
-        name: student.name,
-        email: student.email,
-        phone: student.phone
-      }
+      message: 'Test reminder email sent successfully',
+      to: targetEmail,
+      student: student
+        ? {
+            id: student._id,
+            name: student.name,
+            email: student.email
+          }
+        : null
     })
   } catch (err) {
-    return res.status(500).json({ message: err.message || 'Failed to send test WhatsApp' })
+    return res.status(500).json({ message: err.message || 'Failed to send test reminder email' })
   }
 });
 
@@ -108,23 +138,73 @@ router.post('/test-whatsapp', verifyToken, requireRole('faculty', 'hod', 'admin'
 router.get('/reminder-logs', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
   try {
     const query = {
-      reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] },
-      recipientRole: 'student'
+      $or: [
+        { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
+        { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+      ]
     }
 
     if (!isWebsiteManager(req.user)) {
-      query.department = req.user.department
+      query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
     }
 
     const logs = await Notification.find(query)
       .sort({ createdAt: -1 })
-      .populate('user', 'name email phone year section department')
+      .populate('user', 'name email year section department')
       .populate('assignment', 'title subject dueDate year section department')
       .limit(300)
 
     return res.json({ logs })
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Failed to fetch reminder logs' })
+  }
+})
+
+// Delete one reminder log (faculty/hod/admin)
+router.delete('/reminder-logs/:id', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
+  try {
+    const reminderLog = await Notification.findById(req.params.id)
+
+    if (!reminderLog) {
+      return res.status(404).json({ message: 'Reminder log not found' })
+    }
+
+    if (!isReminderLog(reminderLog)) {
+      return res.status(400).json({ message: 'Selected notification is not a reminder log' })
+    }
+
+    if (!isWebsiteManager(req.user)) {
+      if (normalizeDepartment(reminderLog.department) !== normalizeDepartment(req.user.department)) {
+        return res.status(403).json({ message: 'Cannot delete reminder logs from different department' })
+      }
+    }
+
+    await Notification.findByIdAndDelete(reminderLog._id)
+
+    return res.json({ message: 'Reminder log deleted successfully' })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to delete reminder log' })
+  }
+})
+
+// Delete all reminder logs in user scope (faculty/hod/admin)
+router.delete('/reminder-logs', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
+  try {
+    const query = {
+      $or: [
+        { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
+        { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+      ]
+    }
+
+    if (!isWebsiteManager(req.user)) {
+      query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+    }
+
+    const result = await Notification.deleteMany(query)
+    return res.json({ message: 'All reminder logs deleted successfully', deletedCount: result.deletedCount || 0 })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to delete reminder logs' })
   }
 })
 

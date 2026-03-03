@@ -359,7 +359,7 @@ export default function FacultyDashboard() {
             />
             <TextField
               fullWidth
-              label="Phone Number (WhatsApp)"
+              label="Phone Number"
               value={studentForm.phone}
               onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
               margin="normal"

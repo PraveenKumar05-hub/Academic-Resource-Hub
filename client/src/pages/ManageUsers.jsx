@@ -450,7 +450,7 @@ setSuccess('User created successfully!')
 
           <TextField
             fullWidth
-            label="Phone Number (WhatsApp)"
+            label="Phone Number"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             margin="normal"

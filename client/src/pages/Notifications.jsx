@@ -32,7 +32,7 @@ import {
 import NotificationsIcon from '@mui/icons-material/Notifications'
 import SendIcon from '@mui/icons-material/Send'
 import DeleteIcon from '@mui/icons-material/Delete'
-import WhatsAppIcon from '@mui/icons-material/WhatsApp'
+import EmailIcon from '@mui/icons-material/Email'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -43,7 +43,7 @@ export default function Notifications() {
   const [submitting, setSubmitting] = useState(false)
   const [openDialog, setOpenDialog] = useState(false)
   const [openCreateDialog, setOpenCreateDialog] = useState(false)
-  const [openWhatsAppDialog, setOpenWhatsAppDialog] = useState(false)
+  const [openEmailDialog, setOpenEmailDialog] = useState(false)
   const [openReminderLogsDialog, setOpenReminderLogsDialog] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -52,12 +52,17 @@ export default function Notifications() {
   const [notificationType, setNotificationType] = useState('announcement')
   const [students, setStudents] = useState([])
   const [waStudentId, setWaStudentId] = useState('')
+  const [waPhone, setWaPhone] = useState('')
   const [waSubject, setWaSubject] = useState('')
   const [waDueDate, setWaDueDate] = useState('')
   const [waMessage, setWaMessage] = useState('')
   const [waSending, setWaSending] = useState(false)
+  const [waResult, setWaResult] = useState('')
   const [reminderLogs, setReminderLogs] = useState([])
   const [reminderLogsLoading, setReminderLogsLoading] = useState(false)
+  const [reminderStatusFilter, setReminderStatusFilter] = useState('all')
+  const [deletingReminderId, setDeletingReminderId] = useState('')
+  const [deletingAllReminders, setDeletingAllReminders] = useState(false)
   const { user } = useAuth()
 
   useEffect(() => {
@@ -109,12 +114,14 @@ export default function Notifications() {
     }
   }
 
-  async function openWhatsAppTestDialog() {
-    setOpenWhatsAppDialog(true)
+  async function openEmailTestDialog() {
+    setOpenEmailDialog(true)
     setWaStudentId('')
+    setWaPhone('')
     setWaSubject('')
     setWaDueDate('')
     setWaMessage('')
+    setWaResult('')
     try {
       const params = { role: 'student' }
       if (user?.role === 'admin' && !user?.department) {
@@ -125,32 +132,34 @@ export default function Notifications() {
       const res = await api.get('/admin/users', { params })
       setStudents(res.data.users || [])
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load students for WhatsApp test')
+      setError(err.response?.data?.message || 'Failed to load students for email test')
     }
   }
 
-  async function sendTestWhatsApp(e) {
+  async function sendTestEmail(e) {
     e.preventDefault()
-    if (!waStudentId) {
-      setError('Please select a student')
+    if (!waStudentId && !waPhone.trim()) {
+      setError('Please select a student or enter an email address')
       return
     }
 
     setWaSending(true)
     try {
-      const res = await api.post('/notifications/test-whatsapp', {
-        studentId: waStudentId,
+      const res = await api.post('/notifications/test-email', {
+        studentId: waStudentId || undefined,
+        email: waPhone.trim() || undefined,
         subject: waSubject,
         dueDate: waDueDate,
         message: waMessage
       })
 
       setError('')
-      setOpenWhatsAppDialog(false)
+      const targetEmail = res?.data?.to || waPhone
+      setWaResult(`Reminder email sent successfully. Recipient: ${targetEmail}`)
       setNotifications((prev) => prev)
-      alert(res.data?.message || 'Test WhatsApp sent successfully')
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send test WhatsApp')
+      setError(err.response?.data?.message || err.response?.data?.error || 'Failed to send test reminder email')
+      setWaResult('')
     } finally {
       setWaSending(false)
     }
@@ -159,6 +168,7 @@ export default function Notifications() {
   async function openReminderLogs() {
     setOpenReminderLogsDialog(true)
     setReminderLogsLoading(true)
+    setReminderStatusFilter('all')
     try {
       const res = await api.get('/notifications/reminder-logs')
       setReminderLogs(res.data.logs || [])
@@ -166,6 +176,37 @@ export default function Notifications() {
       setError(err.response?.data?.message || 'Failed to fetch reminder logs')
     } finally {
       setReminderLogsLoading(false)
+    }
+  }
+
+  async function deleteReminderLog(logId) {
+    if (!logId) return
+    if (!window.confirm('Delete this reminder log?')) return
+
+    setDeletingReminderId(logId)
+    try {
+      await api.delete(`/notifications/reminder-logs/${logId}`)
+      setReminderLogs((prev) => prev.filter((item) => item._id !== logId))
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete reminder log')
+    } finally {
+      setDeletingReminderId('')
+    }
+  }
+
+  async function deleteAllReminderLogs() {
+    if (!window.confirm('Delete ALL reminder logs? This cannot be undone.')) return
+
+    setDeletingAllReminders(true)
+    try {
+      await api.delete('/notifications/reminder-logs')
+      setReminderLogs([])
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete all reminder logs')
+    } finally {
+      setDeletingAllReminders(false)
     }
   }
 
@@ -212,11 +253,11 @@ export default function Notifications() {
             </Button>
             <Button
               variant="outlined"
-              startIcon={<WhatsAppIcon />}
-              onClick={openWhatsAppTestDialog}
+              startIcon={<EmailIcon />}
+              onClick={openEmailTestDialog}
               sx={{ textTransform: 'none' }}
             >
-              Test WhatsApp
+              Test Reminder Email
             </Button>
             <Button
               variant="contained"
@@ -404,14 +445,19 @@ export default function Notifications() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={openWhatsAppDialog} onClose={() => setOpenWhatsAppDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={openEmailDialog} onClose={() => setOpenEmailDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 'bold' }}>
-          Send Test WhatsApp Reminder
+          Send Test Reminder Email
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Alert severity="info" sx={{ mb: 1 }}>
-            For Twilio Sandbox, the recipient number must join your WhatsApp sandbox first (and phone must include country code, e.g. +91...).
+            This sends a reminder using SMTP email.
           </Alert>
+          {waResult && (
+            <Alert severity="success" sx={{ mb: 1 }}>
+              {waResult}
+            </Alert>
+          )}
           <FormControl fullWidth margin="normal">
             <InputLabel>Student</InputLabel>
             <Select
@@ -420,13 +466,27 @@ export default function Notifications() {
               label="Student"
               disabled={waSending}
             >
+              <MenuItem value="">
+                <em>None (use email below)</em>
+              </MenuItem>
               {students.map((student) => (
                 <MenuItem key={student._id} value={student._id}>
-                  {student.name} ({student.phone || 'No phone'})
+                  {student.name} ({student.email || 'No email'})
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+
+          <TextField
+            fullWidth
+            label="Or Email Address"
+            value={waPhone}
+            onChange={(e) => setWaPhone(e.target.value)}
+            margin="normal"
+            disabled={waSending}
+            placeholder="student@example.com"
+            helperText="Optional: send test directly to this email"
+          />
 
           <TextField
             fullWidth
@@ -461,8 +521,16 @@ export default function Notifications() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenWhatsAppDialog(false)} disabled={waSending}>Cancel</Button>
-          <Button variant="contained" onClick={sendTestWhatsApp} disabled={waSending}>
+          <Button
+            onClick={() => {
+              setOpenEmailDialog(false)
+              setWaResult('')
+            }}
+            disabled={waSending}
+          >
+            Close
+          </Button>
+          <Button variant="contained" onClick={sendTestEmail} disabled={waSending}>
             {waSending ? <CircularProgress size={20} /> : 'Send Test'}
           </Button>
         </DialogActions>
@@ -471,6 +539,29 @@ export default function Notifications() {
       <Dialog open={openReminderLogsDialog} onClose={() => setOpenReminderLogsDialog(false)} maxWidth="lg" fullWidth>
         <DialogTitle sx={{ fontWeight: 'bold' }}>Reminder Delivery Logs</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Status Filter</InputLabel>
+              <Select
+                value={reminderStatusFilter}
+                label="Status Filter"
+                onChange={(e) => setReminderStatusFilter(e.target.value)}
+                disabled={reminderLogsLoading}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="sent">Sent only</MenuItem>
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={deleteAllReminderLogs}
+              disabled={deletingAllReminders || reminderLogsLoading || reminderLogs.length === 0}
+            >
+              {deletingAllReminders ? 'Deleting...' : 'Delete All'}
+            </Button>
+          </Box>
           {reminderLogsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
               <CircularProgress />
@@ -478,6 +569,16 @@ export default function Notifications() {
           ) : reminderLogs.length === 0 ? (
             <Typography color="text.secondary">No reminder logs found</Typography>
           ) : (
+            (() => {
+              const filteredLogs = reminderStatusFilter === 'sent'
+                ? reminderLogs.filter((logItem) => String(logItem.emailStatus || '') === 'sent')
+                : reminderLogs
+
+              if (filteredLogs.length === 0) {
+                return <Typography color="text.secondary">No reminder logs found for selected filter</Typography>
+              }
+
+              return (
             <TableContainer component={Paper}>
               <Table size="small">
                 <TableHead>
@@ -485,17 +586,19 @@ export default function Notifications() {
                     <TableCell>Student</TableCell>
                     <TableCell>Subject</TableCell>
                     <TableCell>Stage</TableCell>
-                    <TableCell>WhatsApp</TableCell>
+                    <TableCell>Email</TableCell>
+                    <TableCell>Sent At</TableCell>
                     <TableCell>Error</TableCell>
                     <TableCell>Time</TableCell>
+                    <TableCell>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {reminderLogs.map((logItem) => {
+                  {filteredLogs.map((logItem) => {
                     const studentName = logItem.user?.name || logItem.studentName || '-'
                     const subjectName = logItem.assignment?.subject || logItem.subject || '-'
                     const stageLabel = logItem.reminderStage === 'DUE_TODAY' ? 'Due Today' : 'Due Tomorrow'
-                    const waStatus = logItem.whatsappStatus || 'not_attempted'
+                    const emailStatus = logItem.emailStatus || 'not_attempted'
 
                     return (
                       <TableRow key={logItem._id}>
@@ -505,19 +608,33 @@ export default function Notifications() {
                         <TableCell>
                           <Chip
                             size="small"
-                            label={waStatus}
-                            color={waStatus === 'sent' ? 'success' : waStatus === 'failed' ? 'error' : 'default'}
+                            label={emailStatus}
+                            color={emailStatus === 'sent' ? 'success' : emailStatus === 'failed' ? 'error' : 'default'}
                             variant="outlined"
                           />
                         </TableCell>
-                        <TableCell>{logItem.whatsappError || '-'}</TableCell>
+                        <TableCell>{logItem.emailSentAt ? new Date(logItem.emailSentAt).toLocaleString() : '-'}</TableCell>
+                        <TableCell>{logItem.emailError || '-'}</TableCell>
                         <TableCell>{new Date(logItem.createdAt).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="small"
+                            color="error"
+                            startIcon={<DeleteIcon />}
+                            onClick={() => deleteReminderLog(logItem._id)}
+                            disabled={deletingReminderId === logItem._id || deletingAllReminders}
+                          >
+                            {deletingReminderId === logItem._id ? 'Deleting...' : 'Delete'}
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     )
                   })}
                 </TableBody>
               </Table>
             </TableContainer>
+              )
+            })()
           )}
         </DialogContent>
         <DialogActions>

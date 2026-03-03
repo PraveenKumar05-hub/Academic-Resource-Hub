@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const { app, connectMongo } = require('../index');
 const User = require('../models/User');
 const Assignment = require('../models/Assignment');
+const Notification = require('../models/Notification');
 
 describe('API routes (integration)', function(){
   this.timeout(10000);
@@ -98,5 +99,25 @@ describe('API routes (integration)', function(){
     const res = await request(app).get(`/api/assignments/${assignmentId}/acknowledgements`).set('Authorization', `Bearer ${facultyToken}`).expect(200);
     expect(res.body.acknowledgements).to.be.an('array');
     expect(res.body.acknowledgements.length).to.equal(1);
+  });
+
+  it('faculty can update assignment due date and sync class notifications', async ()=>{
+    const updatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+    const res = await request(app)
+      .put(`/api/assignments/${assignmentId}/due-date`)
+      .set('Authorization', `Bearer ${facultyToken}`)
+      .send({ dueDate: updatedDate })
+      .expect(200)
+
+    expect(res.body).to.have.property('syncSummary')
+    expect(res.body.syncSummary).to.have.property('totalStudentsMatched')
+
+    const syncedNotification = await Notification.findOne({
+      assignment: assignmentId,
+      title: 'Assignment Due Date Updated'
+    })
+
+    expect(syncedNotification).to.exist
   });
 });

@@ -14,6 +14,8 @@ const AssignmentSchema = new mongoose.Schema({
   section: { type: String, required: true },
   subject: String,
   dueDate: Date,
+  dueDateUpdatedAt: Date,
+  dueDateUpdatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   fileUrl: String,
   filename: String,
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

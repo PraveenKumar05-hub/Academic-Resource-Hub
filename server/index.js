@@ -54,6 +54,10 @@ app.get('/api/diagnostic', (req, res) => {
     cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET ? '✓ Set' : '❌ NOT SET',
     mongo_uri: process.env.MONGO_URI ? '✓ Set' : 'Using default (localhost)',
     jwt_secret: process.env.JWT_SECRET ? '✓ Set' : 'Using default',
+    smtp_host: process.env.SMTP_HOST ? '✓ Set' : '❌ NOT SET',
+    smtp_user: process.env.SMTP_USER ? '✓ Set' : '❌ NOT SET',
+    smtp_pass: process.env.SMTP_PASS ? '✓ Set' : '❌ NOT SET',
+    smtp_from: process.env.SMTP_FROM ? '✓ Set' : 'Using SMTP_USER',
   };
   
   res.json({
