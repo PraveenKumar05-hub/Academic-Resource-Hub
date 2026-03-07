@@ -8,7 +8,7 @@ const NotificationSchema = new mongoose.Schema({
   studentYear: { type: Number },
   studentSection: { type: String },
   subject: { type: String },
-  reminderStage: { type: String, enum: ['DUE_TOMORROW', 'DUE_TODAY'] },
+  reminderStage: { type: String },
   reminderDueDate: { type: Date },
   whatsappStatus: {
     type: String,

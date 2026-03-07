@@ -353,8 +353,8 @@ router.put('/:id/due-date', verifyToken, requireRole('faculty', 'admin'), async 
     await Notification.deleteMany({
       assignment: assignment._id,
       $or: [
-        { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
-        { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+        { reminderStage: { $regex: '^DUE_' } },
+        { title: { $regex: '^Assignment Reminder - Due', $options: 'i' } }
       ]
     })
 

@@ -27,7 +27,8 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Pagination
 } from '@mui/material'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 import SendIcon from '@mui/icons-material/Send'
@@ -46,6 +47,7 @@ export default function Notifications() {
   const [openEmailDialog, setOpenEmailDialog] = useState(false)
   const [openReminderLogsDialog, setOpenReminderLogsDialog] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [message, setMessage] = useState('')
   const [title, setTitle] = useState('')
   const [recipientRole, setRecipientRole] = useState('student')
@@ -61,6 +63,9 @@ export default function Notifications() {
   const [reminderLogs, setReminderLogs] = useState([])
   const [reminderLogsLoading, setReminderLogsLoading] = useState(false)
   const [reminderStatusFilter, setReminderStatusFilter] = useState('all')
+  const [reminderPage, setReminderPage] = useState(1)
+  const [reminderTotal, setReminderTotal] = useState(0)
+  const reminderLimit = 20
   const [deletingReminderId, setDeletingReminderId] = useState('')
   const [deletingAllReminders, setDeletingAllReminders] = useState(false)
   const { user } = useAuth()
@@ -165,18 +170,32 @@ export default function Notifications() {
     }
   }
 
-  async function openReminderLogs() {
-    setOpenReminderLogsDialog(true)
+  async function fetchReminderLogs(page = 1, status = reminderStatusFilter) {
     setReminderLogsLoading(true)
-    setReminderStatusFilter('all')
     try {
-      const res = await api.get('/notifications/reminder-logs')
+      const res = await api.get('/notifications/reminder-logs', {
+        params: {
+          page,
+          limit: reminderLimit,
+          status
+        }
+      })
       setReminderLogs(res.data.logs || [])
+      setReminderPage(res.data.page || page)
+      setReminderTotal(res.data.total || 0)
+      setError('')
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch reminder logs')
     } finally {
       setReminderLogsLoading(false)
     }
+  }
+
+  async function openReminderLogs() {
+    setOpenReminderLogsDialog(true)
+    setReminderStatusFilter('all')
+    setReminderPage(1)
+    await fetchReminderLogs(1, 'all')
   }
 
   async function deleteReminderLog(logId) {
@@ -186,7 +205,8 @@ export default function Notifications() {
     setDeletingReminderId(logId)
     try {
       await api.delete(`/notifications/reminder-logs/${logId}`)
-      setReminderLogs((prev) => prev.filter((item) => item._id !== logId))
+      await fetchReminderLogs(reminderPage, reminderStatusFilter)
+      setSuccess('Reminder log deleted successfully')
       setError('')
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete reminder log')
@@ -200,8 +220,11 @@ export default function Notifications() {
 
     setDeletingAllReminders(true)
     try {
-      await api.delete('/notifications/reminder-logs')
+      const res = await api.delete('/notifications/reminder-logs')
       setReminderLogs([])
+      setReminderTotal(0)
+      setReminderPage(1)
+      setSuccess(`Deleted ${res.data?.deletedCount || 0} reminder logs successfully`)
       setError('')
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete all reminder logs')
@@ -215,6 +238,7 @@ export default function Notifications() {
     try {
       await api.delete(`/notifications/${id}`)
       setNotifications(notifications.filter(n => n._id !== id))
+      setSuccess('Notification deleted successfully')
     } catch (err) {
       setError('Failed to delete notification')
     }
@@ -230,6 +254,15 @@ export default function Notifications() {
       section: (match[3] || '').trim(),
       subject: (match[4] || '').trim()
     }
+  }
+
+  function formatReminderStage(stageValue) {
+    const stage = String(stageValue || '').toUpperCase()
+    if (stage === 'DUE_TODAY') return 'Due Today'
+    if (stage === 'DUE_TOMORROW') return 'Due Tomorrow'
+    const match = stage.match(/^DUE_IN_(\d+)_DAYS$/)
+    if (match) return `Due in ${match[1]} Days`
+    return stage || 'Reminder'
   }
 
   return (
@@ -285,6 +318,7 @@ export default function Notifications() {
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -545,11 +579,16 @@ export default function Notifications() {
               <Select
                 value={reminderStatusFilter}
                 label="Status Filter"
-                onChange={(e) => setReminderStatusFilter(e.target.value)}
+                onChange={async (e) => {
+                  const value = e.target.value
+                  setReminderStatusFilter(value)
+                  await fetchReminderLogs(1, value)
+                }}
                 disabled={reminderLogsLoading}
               >
                 <MenuItem value="all">All</MenuItem>
                 <MenuItem value="sent">Sent only</MenuItem>
+                <MenuItem value="failed">Failed only</MenuItem>
               </Select>
             </FormControl>
             <Button
@@ -570,11 +609,7 @@ export default function Notifications() {
             <Typography color="text.secondary">No reminder logs found</Typography>
           ) : (
             (() => {
-              const filteredLogs = reminderStatusFilter === 'sent'
-                ? reminderLogs.filter((logItem) => String(logItem.emailStatus || '') === 'sent')
-                : reminderLogs
-
-              if (filteredLogs.length === 0) {
+              if (reminderLogs.length === 0) {
                 return <Typography color="text.secondary">No reminder logs found for selected filter</Typography>
               }
 
@@ -594,10 +629,10 @@ export default function Notifications() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredLogs.map((logItem) => {
+                  {reminderLogs.map((logItem) => {
                     const studentName = logItem.user?.name || logItem.studentName || '-'
                     const subjectName = logItem.assignment?.subject || logItem.subject || '-'
-                    const stageLabel = logItem.reminderStage === 'DUE_TODAY' ? 'Due Today' : 'Due Tomorrow'
+                    const stageLabel = formatReminderStage(logItem.reminderStage)
                     const emailStatus = logItem.emailStatus || 'not_attempted'
 
                     return (
@@ -635,6 +670,17 @@ export default function Notifications() {
             </TableContainer>
               )
             })()
+          )}
+          {reminderTotal > reminderLimit && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <Pagination
+                count={Math.ceil(reminderTotal / reminderLimit)}
+                page={reminderPage}
+                onChange={async (_event, value) => {
+                  await fetchReminderLogs(value, reminderStatusFilter)
+                }}
+              />
+            </Box>
           )}
         </DialogContent>
         <DialogActions>

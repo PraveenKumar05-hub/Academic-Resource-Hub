@@ -17,8 +17,8 @@ function isReminderLog(record) {
   const stage = String(record?.reminderStage || '')
   const title = String(record?.title || '')
   return (
-    ['DUE_TOMORROW', 'DUE_TODAY'].includes(stage) ||
-    /^Assignment Reminder - Due (Tomorrow|Today)$/i.test(title)
+    /^DUE_/i.test(stage) ||
+    /^Assignment Reminder - Due/i.test(title)
   )
 }
 
@@ -137,24 +137,37 @@ router.post('/test-email', verifyToken, requireRole('faculty', 'hod', 'admin'), 
 // Reminder delivery logs for faculty/hod/admin
 router.get('/reminder-logs', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
   try {
+    const page = Math.max(1, Number(req.query?.page || 1))
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 20)))
+    const status = String(req.query?.status || 'all').trim().toLowerCase()
+
     const query = {
       $or: [
-        { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
-        { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+        { reminderStage: { $regex: '^DUE_' } },
+        { title: { $regex: '^Assignment Reminder - Due', $options: 'i' } }
       ]
+    }
+
+    if (status === 'sent') {
+      query.emailStatus = 'sent'
+    } else if (status === 'failed') {
+      query.emailStatus = 'failed'
     }
 
     if (!isWebsiteManager(req.user)) {
       query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
     }
 
+    const total = await Notification.countDocuments(query)
+
     const logs = await Notification.find(query)
       .sort({ createdAt: -1 })
       .populate('user', 'name email year section department')
       .populate('assignment', 'title subject dueDate year section department')
-      .limit(300)
+      .skip((page - 1) * limit)
+      .limit(limit)
 
-    return res.json({ logs })
+    return res.json({ logs, page, limit, total })
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Failed to fetch reminder logs' })
   }
@@ -192,8 +205,8 @@ router.delete('/reminder-logs', verifyToken, requireRole('faculty', 'hod', 'admi
   try {
     const query = {
       $or: [
-        { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
-        { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+        { reminderStage: { $regex: '^DUE_' } },
+        { title: { $regex: '^Assignment Reminder - Due', $options: 'i' } }
       ]
     }
 

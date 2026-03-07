@@ -15,38 +15,82 @@ function dateKeyInTimezone(date, timezone) {
   return formatter.format(new Date(date))
 }
 
-function reminderStageForDueDate(dueDate, now = new Date(), timezone = 'Asia/Kolkata') {
+function dayIndexFromDateKey(key) {
+  const [year, month, day] = String(key || '').split('-').map(Number)
+  if (!year || !month || !day) return null
+  return Math.floor(Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000))
+}
+
+function getReminderLeadDays() {
+  const raw = String(process.env.REMINDER_LEAD_DAYS || '2,1,0')
+  const values = raw
+    .split(',')
+    .map((part) => Number(String(part).trim()))
+    .filter((num) => Number.isInteger(num) && num >= 0 && num <= 30)
+
+  if (values.length === 0) {
+    return [2, 1, 0]
+  }
+
+  return [...new Set(values)].sort((a, b) => b - a)
+}
+
+function reminderStageForOffset(daysUntilDueDate) {
+  if (daysUntilDueDate === 0) return 'DUE_TODAY'
+  if (daysUntilDueDate === 1) return 'DUE_TOMORROW'
+  return `DUE_IN_${daysUntilDueDate}_DAYS`
+}
+
+function reminderStageForDueDate(dueDate, now = new Date(), timezone = 'Asia/Kolkata', reminderLeadDays = [2, 1, 0]) {
   if (!dueDate) return null
 
   const dueKey = dateKeyInTimezone(dueDate, timezone)
   const todayKey = dateKeyInTimezone(now, timezone)
-  const tomorrowKey = dateKeyInTimezone(new Date(now.getTime() + 24 * 60 * 60 * 1000), timezone)
+  const dueIndex = dayIndexFromDateKey(dueKey)
+  const todayIndex = dayIndexFromDateKey(todayKey)
 
-  if (dueKey === tomorrowKey) {
-    return 'DUE_TOMORROW'
+  if (dueIndex == null || todayIndex == null) return null
+
+  const daysUntilDueDate = dueIndex - todayIndex
+  if (!reminderLeadDays.includes(daysUntilDueDate)) {
+    return null
   }
 
-  if (dueKey === todayKey) {
-    return 'DUE_TODAY'
-  }
-
-  return null
+  return reminderStageForOffset(daysUntilDueDate)
 }
 
 function reminderTitleAndMessage(assignment, stage) {
   const dueDateText = assignment?.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'N/A'
   const subjectText = assignment?.subject || 'N/A'
+  const classText = `${assignment?.department || 'N/A'} - Year ${assignment?.year || '-'} Section ${assignment?.section || '-'}`
+
+  if (stage === 'DUE_TODAY') {
+    return {
+      title: 'Assignment Reminder - Due Today',
+      message: `Reminder: Your class assignment for ${classText} in subject ${subjectText} is due today (${dueDateText}).`
+    }
+  }
 
   if (stage === 'DUE_TOMORROW') {
     return {
       title: 'Assignment Reminder - Due Tomorrow',
-      message: `Reminder: Your assignment for subject ${subjectText} is due tomorrow (${dueDateText}).`
+      message: `Reminder: Your class assignment for ${classText} in subject ${subjectText} is due tomorrow (${dueDateText}).`
+    }
+  }
+
+  const match = String(stage || '').match(/^DUE_IN_(\d+)_DAYS$/)
+  const days = match ? Number(match[1]) : null
+
+  if (Number.isInteger(days) && days > 1) {
+    return {
+      title: `Assignment Reminder - Due in ${days} Days`,
+      message: `Reminder: Your class assignment for ${classText} in subject ${subjectText} is due in ${days} days (${dueDateText}).`
     }
   }
 
   return {
     title: 'Assignment Reminder - Due Today',
-    message: `Reminder: Your assignment for subject ${subjectText} is due today (${dueDateText}).`
+    message: `Reminder: Your class assignment for ${classText} in subject ${subjectText} is due today (${dueDateText}).`
   }
 }
 
@@ -63,6 +107,7 @@ function isDueDateExpired(dueDate, now = new Date(), timezone = 'Asia/Kolkata') 
 
 module.exports = function startCron() {
   const timezone = process.env.REMINDER_TIMEZONE || 'Asia/Kolkata'
+  const reminderLeadDays = getReminderLeadDays()
 
   const runReminderJob = async () => {
     try {
@@ -73,8 +118,8 @@ module.exports = function startCron() {
       // Cleanup: remove reminder logs once assignment due date has passed
       const existingReminderLogs = await Notification.find({
         $or: [
-          { reminderStage: { $in: ['DUE_TOMORROW', 'DUE_TODAY'] } },
-          { title: { $regex: '^Assignment Reminder - Due (Tomorrow|Today)$', $options: 'i' } }
+          { reminderStage: { $regex: '^DUE_' } },
+          { title: { $regex: '^Assignment Reminder - Due', $options: 'i' } }
         ]
       })
         .select('_id reminderDueDate assignment title reminderStage createdAt')
@@ -112,7 +157,7 @@ module.exports = function startCron() {
       console.log(`[cron] assignments with dueDate found: ${assignments.length}`)
 
       for (const a of assignments) {
-        const stage = reminderStageForDueDate(a.dueDate, now, timezone)
+        const stage = reminderStageForDueDate(a.dueDate, now, timezone, reminderLeadDays)
         if (!stage) continue
 
         if (!a.department || a.year == null || !a.section) {
