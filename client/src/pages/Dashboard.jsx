@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 import PersonIcon from '@mui/icons-material/Person'
+import SchoolIcon from '@mui/icons-material/School'
 import api from '../api'
 import AdminDashboard from './AdminDashboard'
 import FacultyDashboard from './FacultyDashboard'
@@ -55,7 +56,7 @@ export default function Dashboard() {
           Welcome, {user?.name}! 👋
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
+          <Grid item xs={12} sm={user?.role === 'student' ? 4 : 6}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <PersonIcon />
               <Typography>
@@ -63,7 +64,7 @@ export default function Dashboard() {
               </Typography>
             </Box>
           </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid item xs={12} sm={user?.role === 'student' ? 4 : 6}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <AssignmentIcon />
               <Typography>
@@ -71,6 +72,16 @@ export default function Dashboard() {
               </Typography>
             </Box>
           </Grid>
+          {user?.role === 'student' && (
+            <Grid item xs={12} sm={4}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SchoolIcon />
+                <Typography>
+                  Year: <strong>{user?.year || 'N/A'}</strong>
+                </Typography>
+              </Box>
+            </Grid>
+          )}
         </Grid>
       </Paper>
 

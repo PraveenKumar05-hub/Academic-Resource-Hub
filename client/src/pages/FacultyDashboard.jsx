@@ -36,8 +36,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import api from '../api';
 
 function generateCommonBatchOptions() {
-  const currentYear = new Date().getFullYear();
-  const startYear = currentYear - 2;
+  const startYear = 2023;
   const totalOptions = 10;
 
   return Array.from({ length: totalOptions }, (_, index) => {

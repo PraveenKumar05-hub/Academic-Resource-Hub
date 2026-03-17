@@ -28,6 +28,7 @@ const NotificationSchema = new mongoose.Schema({
   assignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment' },
   department: { type: String },
   recipientRole: { type: String, enum: ['student', 'faculty', 'admin', 'all'], default: 'all' },
+  recipientYear: { type: Number, default: null },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   read: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }

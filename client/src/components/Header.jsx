@@ -61,6 +61,11 @@ export default function Header() {
               <MenuItem disabled>
                 <Typography variant="caption">{user.role}</Typography>
               </MenuItem>
+              {user?.role === 'student' && (
+                <MenuItem disabled>
+                  <Typography variant="caption">Year: {user?.year || 'N/A'}</Typography>
+                </MenuItem>
+              )}
               <MenuItem onClick={() => { navigate('/profile'); handleMenuClose() }}>
                 Profile
               </MenuItem>

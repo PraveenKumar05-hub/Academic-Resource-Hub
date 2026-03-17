@@ -25,28 +25,32 @@ function isReminderLog(record) {
 // Create and broadcast notification (department admin/HOD, admin, faculty)
 router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
   try {
-    const { title, message, type = 'info', recipientRole = 'all', department } = req.body;
+    const { title, message, type = 'info', recipientRole = 'all', department, year } = req.body;
     if (!title || !message) return res.status(400).json({ message: 'Missing required fields' });
 
-    // Find all recipient users
+    // Build recipient filter
     let filter = { department: department || req.user.department };
     if (recipientRole !== 'all') filter.role = recipientRole;
+    // Filter by year if provided (only meaningful for students)
+    const recipientYear = year ? Number(year) : null;
+    if (recipientYear) filter.year = recipientYear;
 
     const recipients = await User.find(filter);
-    
+
     // Create notification for each recipient
-    const notifications = recipients.map(user => ({
-      user: user._id,
+    const notifications = recipients.map(u => ({
+      user: u._id,
       title,
       message,
       type,
       recipientRole,
+      recipientYear: recipientYear || null,
       department: department || req.user.department,
       createdBy: req.user._id
     }));
 
     const created = await Notification.insertMany(notifications);
-    
+
     // Also save one for the creator to see in their feed
     const notification = new Notification({
       user: req.user._id,
@@ -54,15 +58,17 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
       message,
       type,
       recipientRole,
+      recipientYear: recipientYear || null,
       department: department || req.user.department,
       createdBy: req.user._id
     });
     await notification.save();
 
-    res.json({ notification, message: `Notification sent to ${recipients.length} users` });
-  } catch (err) { 
+    const yearLabel = recipientYear ? ` (Year ${recipientYear})` : '';
+    res.json({ notification, message: `Notification sent to ${recipients.length} users${yearLabel}` });
+  } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message }); 
+    res.status(500).json({ error: err.message });
   }
 });
 

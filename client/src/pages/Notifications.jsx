@@ -51,6 +51,7 @@ export default function Notifications() {
   const [message, setMessage] = useState('')
   const [title, setTitle] = useState('')
   const [recipientRole, setRecipientRole] = useState('student')
+  const [recipientYear, setRecipientYear] = useState('')
   const [notificationType, setNotificationType] = useState('announcement')
   const [students, setStudents] = useState([])
   const [waStudentId, setWaStudentId] = useState('')
@@ -97,17 +98,22 @@ export default function Notifications() {
 
     setSubmitting(true)
     try {
-      const res = await api.post('/notifications', {
+      const payload = {
         title,
         message,
         type: notificationType,
         recipientRole,
         department: user.department
-      })
+      }
+      if (recipientRole === 'student' && recipientYear) {
+        payload.year = Number(recipientYear)
+      }
+      const res = await api.post('/notifications', payload)
       setNotifications([res.data.notification, ...notifications])
       setTitle('')
       setMessage('')
       setRecipientRole('student')
+      setRecipientYear('')
       setNotificationType('announcement')
       setOpenCreateDialog(false)
       setError('')
@@ -451,7 +457,7 @@ export default function Notifications() {
             <InputLabel>Send To</InputLabel>
             <Select
               value={recipientRole}
-              onChange={(e) => setRecipientRole(e.target.value)}
+              onChange={(e) => { setRecipientRole(e.target.value); setRecipientYear('') }}
               label="Send To"
               disabled={submitting}
             >
@@ -460,6 +466,23 @@ export default function Notifications() {
               <MenuItem value="all">All</MenuItem>
             </Select>
           </FormControl>
+          {recipientRole === 'student' && (
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Year (optional)</InputLabel>
+              <Select
+                value={recipientYear}
+                onChange={(e) => setRecipientYear(e.target.value)}
+                label="Year (optional)"
+                disabled={submitting}
+              >
+                <MenuItem value=""><em>All Years</em></MenuItem>
+                <MenuItem value={1}>1st Year</MenuItem>
+                <MenuItem value={2}>2nd Year</MenuItem>
+                <MenuItem value={3}>3rd Year</MenuItem>
+                <MenuItem value={4}>4th Year</MenuItem>
+              </Select>
+            </FormControl>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setOpenCreateDialog(false)} disabled={submitting}>

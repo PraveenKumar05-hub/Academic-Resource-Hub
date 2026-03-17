@@ -34,8 +34,7 @@ import api from '../api'
 import { useAuth } from '../context/AuthContext'
 
 function generateCommonBatchOptions() {
-  const currentYear = new Date().getFullYear()
-  const startYear = currentYear - 2
+  const startYear = 2023
   const totalOptions = 10
 
   return Array.from({ length: totalOptions }, (_, index) => {
