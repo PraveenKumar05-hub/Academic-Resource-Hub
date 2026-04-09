@@ -11,11 +11,14 @@ const TestSchema = new mongoose.Schema({
   maxMarks: { type: Number, required: true, min: 1 },
   status: {
     type: String,
-    enum: ['scheduled', 'completed', 'published'],
+    enum: ['scheduled', 'completed', 'published', 'cancelled'],
     default: 'scheduled'
   },
+  questionsCount: { type: Number, default: 0 },
+  questions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TestQuestion' }],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   publishedAt: { type: Date },
+  cancelledAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 })
