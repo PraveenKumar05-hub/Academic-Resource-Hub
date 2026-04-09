@@ -16,12 +16,16 @@ import DashboardIcon from '@mui/icons-material/Dashboard'
 import PeopleIcon from '@mui/icons-material/People'
 import SchoolIcon from '@mui/icons-material/School'
 import NotificationsIcon from '@mui/icons-material/Notifications'
+import AssignmentIcon from '@mui/icons-material/Assignment'
 import api from '../api'
 
 export default function AdminDashboard() {
   const [counts, setCounts] = React.useState({
-    users: 0,
+    totalUsers: 0,
+    faculty: 0,
+    students: 0,
     subjects: 0,
+    assignments: 0,
     notifications: 0
   })
   const [dept, setDept] = React.useState('')
@@ -40,15 +44,20 @@ export default function AdminDashboard() {
       setDept(deptName)
 
       // 2️⃣ Fetch department-based data freshly
-      const [usersRes, deptRes, notifRes] = await Promise.all([
+      const [usersRes, deptRes, notifRes, assignRes] = await Promise.all([
         api.get('/admin/users'),              // MUST return latest users
         api.get(`/departments/${deptName}`),
-        api.get('/notifications')
+        api.get('/notifications'),
+        api.get('/assignments')
       ])
 
+      const users = usersRes.data.users || []
       setCounts({
-        users: usersRes.data.users?.length || 0,
+        totalUsers: users.length,
+        faculty: users.filter((user) => user.role === 'faculty').length,
+        students: users.filter((user) => user.role === 'student').length,
         subjects: deptRes.data.department?.subjects?.length || 0,
+        assignments: assignRes.data.assignments?.length || 0,
         notifications: notifRes.data.notifications?.length || 0
       })
     } catch (err) {
@@ -143,9 +152,35 @@ export default function AdminDashboard() {
           <StatCard
             icon={PeopleIcon}
             label="Total Users"
-            value={counts.users}
+            value={counts.totalUsers}
             color="#667eea"
-            path="/website-manager"
+            path="/manage-users"
+          />
+          <StatCard
+            icon={SchoolIcon}
+            label="Faculty"
+            value={counts.faculty}
+            color="#16a085"
+            path="/manage-users"
+          />
+          <StatCard
+            icon={AssignmentIcon}
+            label="Assignments"
+            value={counts.assignments}
+            color="#e74c3c"
+          />
+          <StatCard
+            icon={PeopleIcon}
+            label="Students"
+            value={counts.students}
+            color="#2980b9"
+            path="/manage-users"
+          />
+          <StatCard
+            icon={SchoolIcon}
+            label="Subjects"
+            value={counts.subjects}
+            color="#f39c12"
           />
           <StatCard
             icon={NotificationsIcon}
@@ -166,9 +201,16 @@ export default function AdminDashboard() {
 
               <ActionButton
                 icon={PeopleIcon}
-                label="Website Manager"
-                path="/website-manager"
+                label="Manage Users"
+                path="/manage-users"
                 color="#667eea"
+              />
+
+              <ActionButton
+                icon={SchoolIcon}
+                label="Manage Subjects"
+                path="/manage-subjects"
+                color="#f39c12"
               />
 
               <ActionButton
@@ -176,6 +218,13 @@ export default function AdminDashboard() {
                 label="Send Notification"
                 path="/notifications"
                 color="#27ae60"
+              />
+
+              <ActionButton
+                icon={AssignmentIcon}
+                label="Activity Logs"
+                path="/activity-logs"
+                color="#e74c3c"
               />
             </Paper>
           </Grid>

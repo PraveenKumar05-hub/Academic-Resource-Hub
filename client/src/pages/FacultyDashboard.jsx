@@ -33,6 +33,8 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PeopleIcon from '@mui/icons-material/People';
+import SchoolIcon from '@mui/icons-material/School';
 import api from '../api';
 
 function generateCommonBatchOptions() {
@@ -50,7 +52,7 @@ export default function FacultyDashboard() {
   const [dept, setDept] = React.useState(null);
   const [assignments, setAssignments] = React.useState([]);
   const [students, setStudents] = React.useState([]);
-  const [yearFilter, setYearFilter] = React.useState('all');
+  const [yearFilter, setYearFilter] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const commonBatchOptions = React.useMemo(() => generateCommonBatchOptions(), []);
 
@@ -190,10 +192,32 @@ export default function FacultyDashboard() {
     new Set(students.map((student) => Number(student.year)).filter(Boolean))
   ).sort((a, b) => a - b);
 
+  React.useEffect(() => {
+    if (!yearFilter && availableYears.length > 0) {
+      setYearFilter(String(availableYears[0]));
+    }
+  }, [availableYears, yearFilter]);
+
   const filteredStudents =
-    yearFilter === 'all'
-      ? students
+    !yearFilter
+      ? []
       : students.filter((student) => String(student.year || '') === yearFilter);
+
+  const StatCard = ({ icon: Icon, label, value, color }) => (
+    <Grid item xs={12} sm={6} md={4}>
+      <Card sx={{ background: `linear-gradient(135deg, ${color}18, ${color}08)`, border: `1px solid ${color}33` }}>
+        <CardContent sx={{ textAlign: 'center' }}>
+          <Icon sx={{ fontSize: 40, color, mb: 1 }} />
+          <Typography variant="h4" sx={{ fontWeight: 'bold', color }}>
+            {value}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {label}
+          </Typography>
+        </CardContent>
+      </Card>
+    </Grid>
+  )
 
   return (
     <Box sx={{ display: 'flex', gap: 3, p: 3 }}>
@@ -226,6 +250,12 @@ export default function FacultyDashboard() {
             Add Student
           </Button>
         </Box>
+
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <StatCard icon={AssignmentIcon} label="Assignments" value={assignments.length} color="#e74c3c" />
+          <StatCard icon={PeopleIcon} label="Students" value={students.length} color="#2980b9" />
+          <StatCard icon={SchoolIcon} label="Visible Students" value={filteredStudents.length} color="#16a085" />
+        </Grid>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
@@ -290,14 +320,15 @@ export default function FacultyDashboard() {
                         label="Year"
                         onChange={(e) => setYearFilter(e.target.value)}
                       >
-                        <MenuItem value="all">All Years</MenuItem>
                         {availableYears.map((year) => (
                           <MenuItem key={year} value={String(year)}>{`Year ${year}`}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
                   </Box>
-                  {filteredStudents.length === 0 ? (
+                  {!yearFilter ? (
+                    <Typography variant="body2" color="text.secondary">Select a year to view students</Typography>
+                  ) : filteredStudents.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">No students found for selected year</Typography>
                   ) : (
                     <TableContainer component={Paper}>

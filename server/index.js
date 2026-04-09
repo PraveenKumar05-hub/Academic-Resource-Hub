@@ -29,11 +29,17 @@ console.log('✓ Materials routes registered');
 app.use('/api/assignments', require('./routes/assignments'));
 console.log('✓ Assignments routes registered');
 
+app.use('/api/tests', require('./routes/tests'));
+console.log('✓ Tests routes registered');
+
 app.use('/api/notifications', require('./routes/notifications'));
 console.log('✓ Notifications routes registered');
 
 app.use('/api/admin', require('./routes/admin'));
 console.log('✓ Admin routes registered');
+
+app.use('/api/activity-logs', require('./routes/activityLogs'));
+console.log('✓ Activity logs routes registered');
 
 app.use('/api/departments', require('./routes/departments'));
 console.log('✓ Departments routes registered');
@@ -81,7 +87,17 @@ if (require.main === module) {
       // Start cron jobs
       require('./cron/reminders')();
       const PORT = process.env.PORT || 5000;
-      app.listen(PORT, ()=> console.log('Server running on port', PORT));
+      const server = app.listen(PORT, () => console.log('Server running on port', PORT));
+
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`Port ${PORT} is already in use. Stop the existing server process or set a different PORT value.`);
+          process.exit(1);
+        }
+
+        console.error('Server listen error', err);
+        process.exit(1);
+      });
     } catch (err) {
       console.error('Startup error', err);
       process.exit(1);

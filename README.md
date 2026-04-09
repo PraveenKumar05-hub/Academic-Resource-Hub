@@ -1,45 +1,38 @@
 # Academic Resource Hub
 
-Academic Resource Hub is a full-stack college portal for managing assignments, study materials, users, notifications, and department workflows.
+Academic Resource Hub is a full-stack college portal for managing users, assignments, materials, notifications, tests, and academic workflows with role-based access.
 
-It includes role-based access for Website Manager, Department Admin (HOD), Faculty, and Students, with OTP-based password reset and WhatsApp reminder automation for assignment due dates.
+## Highlights
+
+- Role-based authentication for Admin, HOD, Faculty, and Students
+- Department-scoped user management
+- Bulk user import with CSV/Excel support
+- Study materials upload and assignment workflow
+- Notifications with email delivery tracking
+- Reminder logs with search and CSV export
+- Test management:
+  - Schedule tests by year/section/batch
+  - Enter and publish marks
+  - Student marks view
+  - Test analytics and marks export
+- Activity logging with search and CSV export
+- Dark mode toggle
 
 ## Tech Stack
 
-- **Frontend:** React (Vite), MUI, React Router, Axios
-- **Backend:** Node.js, Express, MongoDB (Mongoose), JWT auth
-- **Storage:** Cloudinary (materials/assignments uploads)
-- **Messaging:** Nodemailer (OTP email), Twilio WhatsApp (assignment reminders)
-- **Scheduling:** node-cron
-
-## Core Features
-
-- Role-based login and protected routes
-- Department-scoped user management (students/faculty)
-- Year/section/batch aware student management
-- Study materials upload, download, and subject filtering
-- Assignments upload and student acknowledgement workflow
-- Faculty receives student acknowledgement notifications
-- Forgot password with OTP (cooldown + lockout)
-- Automated assignment reminders:
-	- Due tomorrow
-	- Due today
-	- WhatsApp send status logs
-- Reminder logs UI for faculty/admin/hod
+- Frontend: React (Vite), MUI, React Router, Axios
+- Backend: Node.js, Express, MongoDB (Mongoose), JWT
+- File/Media: Cloudinary
+- Email: Nodemailer (SMTP)
+- Scheduler: node-cron
 
 ## Project Structure
 
 ```text
 academic-resource-hub/
-├─ client/                 # React app
-│  ├─ src/pages/           # App pages (Assignments, Notifications, Materials, etc.)
-│  └─ ...
-├─ server/                 # Express API
-│  ├─ models/              # Mongoose schemas
-│  ├─ routes/              # API routes
-│  ├─ cron/                # Scheduled reminder jobs
-│  ├─ utils/               # Helper utilities (WhatsApp, etc.)
-│  └─ scripts/             # Utility scripts
+├─ client/                  # React frontend
+├─ server/                  # Express backend
+├─ package.json             # Root scripts for running both apps
 ├─ TESTING_GUIDE.md
 └─ README.md
 ```
@@ -47,45 +40,79 @@ academic-resource-hub/
 ## Prerequisites
 
 - Node.js 18+
-- MongoDB running locally or accessible URI
-- Cloudinary account
-- Gmail App Password (for OTP mail) or another SMTP provider
-- Twilio account with WhatsApp sandbox/approved sender
+- MongoDB running locally or a hosted MongoDB URI
+- Cloudinary credentials (for uploads)
+- SMTP credentials (for OTP and email notifications)
 
-## Setup
+## Quick Start
 
-### 1) Backend
+1. Install all dependencies from project root:
+
+```powershell
+npm run install:all
+```
+
+2. Create backend env file:
 
 ```powershell
 cd server
-npm install
-```
-
-Create env file:
-
-```powershell
 copy .env.example .env
 ```
 
-Edit `.env` with your real credentials.
-
-Run backend:
+3. Create frontend env file:
 
 ```powershell
-npm start
+cd ..\client
+copy .env.example .env
 ```
 
-### 2) Frontend
+4. In `client/.env`, set:
+
+```env
+VITE_API_URL=http://localhost:5000/api
+```
+
+5. Start both backend and frontend from project root:
 
 ```powershell
-cd client
-npm install
+cd ..
 npm run dev
 ```
 
-## Environment Variables (Server)
+If you see port conflict errors, run:
 
-Use `server/.env.example` as template.
+```powershell
+npm run dev:reset
+```
+
+## Scripts
+
+### Root
+
+- `npm run install:all` - install root, server, and client dependencies
+- `npm run dev` - run backend and frontend together
+- `npm run dev:reset` - clear ports 5000/3000/3001, then run both apps
+- `npm run test` - run backend test suite
+- `npm run build` - build frontend production bundle
+
+### Server
+
+- `npm start` - start backend server
+- `npm run dev` - start backend with nodemon
+- `npm test` - run backend tests
+- `npm run seed` - seed sample data
+
+### Client
+
+- `npm run dev` - start Vite dev server
+- `npm run build` - build client
+- `npm run preview` - preview production build
+
+## Environment Variables
+
+Use `server/.env.example` as a template.
+
+Required in most setups:
 
 - `PORT`
 - `MONGO_URI`
@@ -99,55 +126,27 @@ Use `server/.env.example` as template.
 - `SMTP_USER`
 - `SMTP_PASS`
 - `SMTP_FROM`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_FROM`
-- `REMINDER_TIMEZONE` (optional, default `Asia/Kolkata`)
 
-## Reminder Automation Notes
+Optional reminder settings:
 
-- Reminder job runs once on server startup and then every 5 minutes.
-- Notifications are generated for matching class (`department + year + section`) for:
-	- due today
-	- due tomorrow
-- Reminder logs are visible from **Notifications → Reminder Logs**.
-- Expired reminder logs are auto-cleaned after due date.
+- `REMINDER_TIMEZONE` (default: `Asia/Kolkata`)
+- `REMINDER_LEAD_DAYS` (default: `2,1,0`)
 
-## Scripts
+## Validation
 
-### Server
+From project root:
 
-- `npm start` - start API server
-- `npm run dev` - start with nodemon
-- `npm test` - run test suite
-- `npm run seed` - seed sample data
-
-### Client
-
-- `npm run dev` - start Vite dev server
-- `npm run build` - production build
-- `npm run preview` - preview production build
-
-## API Highlights
-
-- `POST /api/auth/login`
-- `POST /api/auth/forgot-password/request-otp`
-- `POST /api/auth/forgot-password/reset`
-- `GET /api/materials`
-- `POST /api/materials/upload`
-- `GET /api/assignments`
-- `POST /api/assignments/upload`
-- `POST /api/assignments/:id/acknowledge`
-- `GET /api/notifications`
-- `POST /api/notifications/test-whatsapp`
-- `GET /api/notifications/reminder-logs`
+```powershell
+npm run test
+npm run build
+```
 
 ## Security Notes
 
-- Never commit real secrets in `.env` or `.env.example`.
-- Rotate any credential that was previously exposed.
-- Use environment-specific secrets in production.
+- Never commit real secrets in `.env` files.
+- Keep `client/.env`, `server/.env`, and `node_modules` out of Git.
+- Rotate credentials if they were ever exposed.
 
 ## License
 
-For academic/internal project use.
+For academic and internal use.

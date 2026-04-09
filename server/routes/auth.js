@@ -6,6 +6,8 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
+const { getPasswordStrengthMessage } = require('../utils/passwordPolicy');
+const { logActivity } = require('../utils/activityLogger');
 
 const OTP_COOLDOWN_MS = 60 * 1000;
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
@@ -170,8 +172,9 @@ router.post('/forgot-password/reset', async (req, res) => {
     return res.status(400).json({ message: 'Email, OTP and new password are required' });
   }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: 'Password must be at least 6 characters' });
+  const strengthMessage = getPasswordStrengthMessage(newPassword);
+  if (strengthMessage) {
+    return res.status(400).json({ message: strengthMessage });
   }
 
   try {
@@ -218,6 +221,15 @@ router.post('/forgot-password/reset', async (req, res) => {
     user.passwordResetOtpFailedAttempts = 0;
     user.passwordResetOtpLockedUntil = undefined;
     await user.save();
+
+    await logActivity({
+      action: 'password_reset',
+      entityType: 'user',
+      entityId: user._id,
+      summary: `Password reset completed for ${user.email}`,
+      department: user.department,
+      metadata: { email: user.email }
+    })
 
     return res.status(200).json({ message: 'Password reset successful' });
   } catch (error) {

@@ -17,6 +17,8 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import PermMediaIcon from '@mui/icons-material/PermMedia'
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import DomainAddIcon from '@mui/icons-material/DomainAdd'
+import HistoryIcon from '@mui/icons-material/History'
+import QuizIcon from '@mui/icons-material/Quiz'
 import { useAuth } from '../context/AuthContext'
 
 const DRAWER_WIDTH = 250
@@ -48,7 +50,12 @@ export default function Sidebar({ mobileOpen, onClose }) {
       : []),
 
     { label: 'Notifications', path: '/notifications', icon: <NotificationsIcon /> },
+    { label: 'Tests', path: '/tests', icon: <QuizIcon /> },
   ]
+
+  if (user?.role === 'admin' || user?.role === 'hod' || user?.role === 'faculty') {
+    menuItems.push({ label: 'Activity Logs', path: '/activity-logs', icon: <HistoryIcon /> })
+  }
 
   if (isWebsiteManager) {
     menuItems.push(

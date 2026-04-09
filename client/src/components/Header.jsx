@@ -8,13 +8,18 @@ import {
   Box, 
   Avatar, 
   Menu, 
-  MenuItem 
+  MenuItem,
+  IconButton
 } from '@mui/material'
+import DarkModeIcon from '@mui/icons-material/DarkMode'
+import LightModeIcon from '@mui/icons-material/LightMode'
 import { useAuth } from '../context/AuthContext'
+import { useThemeMode } from '../context/ThemeModeContext'
 
 export default function Header() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { mode, toggleMode } = useThemeMode()
   const [anchorEl, setAnchorEl] = React.useState(null)
 
   const handleMenuOpen = (e) => setAnchorEl(e.currentTarget)
@@ -39,6 +44,9 @@ export default function Header() {
 
         {user && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton color="inherit" onClick={toggleMode} aria-label="toggle theme">
+              {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+            </IconButton>
             <Avatar 
               sx={{ 
                 backgroundColor: '#ff6b6b',

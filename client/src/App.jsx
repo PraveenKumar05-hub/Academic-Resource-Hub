@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Box, IconButton } from '@mui/material'
+import { Box, CssBaseline, IconButton, ThemeProvider, createTheme } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ThemeModeProvider, useThemeMode } from './context/ThemeModeContext'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -14,6 +15,8 @@ import Dashboard from './pages/Dashboard'
 import Assignments from './pages/Assignments'
 import Notifications from './pages/Notifications'
 import ManageUsers from './pages/ManageUsers'
+import ActivityLogs from './pages/ActivityLogs'
+import Tests from './pages/Tests'
 import ManageSubjects from './pages/ManageSubjects'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
@@ -28,98 +31,126 @@ import RegisterWebsiteManager from './pages/RegisterWebsiteManager'
 function AppContent() {
   const { user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { mode } = useThemeMode()
 
   const isAuthenticated = !!user
 
+  const theme = createTheme({
+    palette: {
+      mode,
+      primary: { main: '#667eea' }
+    }
+  })
+
   return (
-    <>
-      {/* Header */}
-      {isAuthenticated && <Header />}
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <>
+        {/* Header */}
+        {isAuthenticated && <Header />}
 
-      {/* Layout BELOW header */}
-      <Box
-        sx={{
-          display: 'flex',
-          minHeight: '100vh',
-          backgroundColor: isAuthenticated ? '#fafafa' : '#fff'
-        }}
-      >
-        {/* Sidebar */}
-        {isAuthenticated && (
-          <Sidebar
-            mobileOpen={mobileOpen}
-            onClose={() => setMobileOpen(false)}
-          />
-        )}
-
-        {/* Main content */}
+        {/* Layout BELOW header */}
         <Box
-          component="main"
           sx={{
-            flexGrow: 1,
-            p: isAuthenticated ? 3 : 0
+            display: 'flex',
+            minHeight: '100vh',
+            backgroundColor: isAuthenticated ? 'background.default' : 'background.paper'
           }}
         >
-          {/* Mobile menu button */}
+          {/* Sidebar */}
           {isAuthenticated && (
-            <IconButton
-              onClick={() => setMobileOpen(true)}
-              sx={{ display: { xs: 'block', sm: 'none' }, mb: 2 }}
-            >
-              <MenuIcon />
-            </IconButton>
+            <Sidebar
+              mobileOpen={mobileOpen}
+              onClose={() => setMobileOpen(false)}
+            />
           )}
 
-          <Routes>
-            {/* ---------- PUBLIC ROUTES ---------- */}
-            {!isAuthenticated && (
-              <>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="*" element={<Navigate to="/" />} />
-              </>
+          {/* Main content */}
+          <Box
+            component="main"
+            sx={{
+              flexGrow: 1,
+              p: isAuthenticated ? 3 : 0
+            }}
+          >
+            {/* Mobile menu button */}
+            {isAuthenticated && (
+              <IconButton
+                onClick={() => setMobileOpen(true)}
+                sx={{ display: { xs: 'block', sm: 'none' }, mb: 2 }}
+              >
+                <MenuIcon />
+              </IconButton>
             )}
 
-            {/* ---------- PROTECTED ROUTES ---------- */}
-            {isAuthenticated && (
-              <>
-                <Route
-                  path="/website-manager-dashboard"
-                  element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <WebsiteManagerDashboard />
-                    </ProtectedRoute>
-                  }
-                />
+            <Routes>
+              {/* ---------- PUBLIC ROUTES ---------- */}
+              {!isAuthenticated && (
+                <>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="*" element={<Navigate to="/" />} />
+                </>
+              )}
 
-                <Route
-                  path="/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  }
-                />
+              {/* ---------- PROTECTED ROUTES ---------- */}
+              {isAuthenticated && (
+                <>
+                  <Route
+                    path="/website-manager-dashboard"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <WebsiteManagerDashboard />
+                      </ProtectedRoute>
+                    }
+                  />
 
-                <Route
-                  path="/assignments"
-                  element={
-                    <ProtectedRoute allowedRoles={['student', 'faculty']}>
-                      <Assignments />
-                    </ProtectedRoute>
-                  }
-                />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <Dashboard />
+                      </ProtectedRoute>
+                    }
+                  />
 
-                <Route
-                  path="/notifications"
-                  element={
-                    <ProtectedRoute>
-                      <Notifications />
-                    </ProtectedRoute>
-                  }
-                />
+                  <Route
+                    path="/assignments"
+                    element={
+                      <ProtectedRoute allowedRoles={['student', 'faculty']}>
+                        <Assignments />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/notifications"
+                    element={
+                      <ProtectedRoute>
+                        <Notifications />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/tests"
+                    element={
+                      <ProtectedRoute allowedRoles={['student', 'faculty', 'hod', 'admin']}>
+                        <Tests />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/activity-logs"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'hod', 'faculty']}>
+                        <ActivityLogs />
+                      </ProtectedRoute>
+                    }
+                  />
 
                 <Route
                   path="/website-manager"
@@ -207,19 +238,22 @@ function AppContent() {
                 <Route path="*" element={<Navigate to="/dashboard" />} />
               </>
             )}
-          </Routes>
+            </Routes>
+          </Box>
         </Box>
-      </Box>
-    </>
+      </>
+    </ThemeProvider>
   )
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <ThemeModeProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ThemeModeProvider>
     </BrowserRouter>
   )
 }

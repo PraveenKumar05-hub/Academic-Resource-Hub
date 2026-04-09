@@ -22,6 +22,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  IconButton,
   Table,
   TableBody,
   TableCell,
@@ -35,8 +36,19 @@ import SendIcon from '@mui/icons-material/Send'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EmailIcon from '@mui/icons-material/Email'
 import ListAltIcon from '@mui/icons-material/ListAlt'
+import SearchIcon from '@mui/icons-material/Search'
+import DownloadIcon from '@mui/icons-material/Download'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([])
@@ -53,6 +65,9 @@ export default function Notifications() {
   const [recipientRole, setRecipientRole] = useState('student')
   const [recipientYear, setRecipientYear] = useState('')
   const [notificationType, setNotificationType] = useState('announcement')
+  const [notificationSearch, setNotificationSearch] = useState('')
+  const [notificationTypeFilter, setNotificationTypeFilter] = useState('all')
+  const [notificationReadFilter, setNotificationReadFilter] = useState('all')
   const [students, setStudents] = useState([])
   const [waStudentId, setWaStudentId] = useState('')
   const [waPhone, setWaPhone] = useState('')
@@ -64,6 +79,7 @@ export default function Notifications() {
   const [reminderLogs, setReminderLogs] = useState([])
   const [reminderLogsLoading, setReminderLogsLoading] = useState(false)
   const [reminderStatusFilter, setReminderStatusFilter] = useState('all')
+  const [reminderSearch, setReminderSearch] = useState('')
   const [reminderPage, setReminderPage] = useState(1)
   const [reminderTotal, setReminderTotal] = useState(0)
   const reminderLimit = 20
@@ -176,14 +192,15 @@ export default function Notifications() {
     }
   }
 
-  async function fetchReminderLogs(page = 1, status = reminderStatusFilter) {
+  async function fetchReminderLogs(page = 1, status = reminderStatusFilter, searchText = reminderSearch) {
     setReminderLogsLoading(true)
     try {
       const res = await api.get('/notifications/reminder-logs', {
         params: {
           page,
           limit: reminderLimit,
-          status
+          status,
+          search: searchText || undefined
         }
       })
       setReminderLogs(res.data.logs || [])
@@ -201,7 +218,8 @@ export default function Notifications() {
     setOpenReminderLogsDialog(true)
     setReminderStatusFilter('all')
     setReminderPage(1)
-    await fetchReminderLogs(1, 'all')
+    setReminderSearch('')
+    await fetchReminderLogs(1, 'all', '')
   }
 
   async function deleteReminderLog(logId) {
@@ -271,6 +289,54 @@ export default function Notifications() {
     return stage || 'Reminder'
   }
 
+  const filteredNotifications = notifications.filter((notification) => {
+    const search = notificationSearch.trim().toLowerCase()
+    const matchesSearch =
+      !search ||
+      notification.title?.toLowerCase().includes(search) ||
+      notification.message?.toLowerCase().includes(search) ||
+      notification.department?.toLowerCase().includes(search) ||
+      String(notification.recipientRole || '').toLowerCase().includes(search)
+
+    const matchesType = notificationTypeFilter === 'all' || notification.type === notificationTypeFilter
+
+    const matchesRead =
+      notificationReadFilter === 'all' ||
+      (notificationReadFilter === 'read' && notification.read) ||
+      (notificationReadFilter === 'unread' && !notification.read)
+
+    return matchesSearch && matchesType && matchesRead
+  })
+
+  function exportNotificationsCsv() {
+    api.get('/notifications/export', {
+      params: {
+        search: notificationSearch.trim() || undefined,
+        type: notificationTypeFilter !== 'all' ? notificationTypeFilter : undefined,
+        read: notificationReadFilter !== 'all' ? notificationReadFilter : undefined
+      },
+      responseType: 'blob'
+    }).then((res) => {
+      downloadBlob('notifications-export.csv', new Blob([res.data], { type: 'text/csv;charset=utf-8;' }))
+    }).catch(() => {
+      setError('Failed to export notifications')
+    })
+  }
+
+  function exportReminderLogsCsv() {
+    api.get('/notifications/reminder-logs/export', {
+      params: {
+        status: reminderStatusFilter,
+        search: reminderSearch.trim() || undefined
+      },
+      responseType: 'blob'
+    }).then((res) => {
+      downloadBlob('reminder-logs.csv', new Blob([res.data], { type: 'text/csv;charset=utf-8;' }))
+    }).catch(() => {
+      setError('Failed to export reminder logs')
+    })
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -326,18 +392,81 @@ export default function Notifications() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Search notifications"
+                value={notificationSearch}
+                onChange={(e) => setNotificationSearch(e.target.value)}
+                placeholder="Search title, message, department"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth>
+                <InputLabel>Type</InputLabel>
+                <Select
+                  value={notificationTypeFilter}
+                  label="Type"
+                  onChange={(e) => setNotificationTypeFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="announcement">Announcement</MenuItem>
+                  <MenuItem value="urgent">Urgent</MenuItem>
+                  <MenuItem value="info">Info</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth>
+                <InputLabel>Read Status</InputLabel>
+                <Select
+                  value={notificationReadFilter}
+                  label="Read Status"
+                  onChange={(e) => setNotificationReadFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="read">Read</MenuItem>
+                  <MenuItem value="unread">Unread</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Button fullWidth variant="outlined" startIcon={<DownloadIcon />} onClick={exportNotificationsCsv}>
+                Export CSV
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={() => {
+                  setNotificationSearch('')
+                  setNotificationTypeFilter('all')
+                  setNotificationReadFilter('all')
+                }}
+              >
+                Reset
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress />
         </Box>
-      ) : notifications.length === 0 ? (
+      ) : filteredNotifications.length === 0 ? (
         <Paper sx={{ p: 3, textAlign: 'center', backgroundColor: '#f5f5f5' }}>
           <NotificationsIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
           <Typography color="textSecondary">No notifications yet</Typography>
         </Paper>
       ) : (
         <Grid container spacing={2}>
-          {notifications.map((n) => (
+          {filteredNotifications.map((n) => (
             <Grid item xs={12} key={n._id}>
               <Card sx={{
                 background: 'linear-gradient(135deg, #fff 0%, #f8f9ff 100%)',
@@ -597,32 +726,64 @@ export default function Notifications() {
         <DialogTitle sx={{ fontWeight: 'bold' }}>Reminder Delivery Logs</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel>Status Filter</InputLabel>
-              <Select
-                value={reminderStatusFilter}
-                label="Status Filter"
-                onChange={async (e) => {
-                  const value = e.target.value
-                  setReminderStatusFilter(value)
-                  await fetchReminderLogs(1, value)
-                }}
-                disabled={reminderLogsLoading}
-              >
-                <MenuItem value="all">All</MenuItem>
-                <MenuItem value="sent">Sent only</MenuItem>
-                <MenuItem value="failed">Failed only</MenuItem>
-              </Select>
-            </FormControl>
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<DeleteIcon />}
-              onClick={deleteAllReminderLogs}
-              disabled={deletingAllReminders || reminderLogsLoading || reminderLogs.length === 0}
-            >
-              {deletingAllReminders ? 'Deleting...' : 'Delete All'}
-            </Button>
+            <Grid container spacing={1} sx={{ flex: 1 }}>
+              <Grid item xs={12} md={5}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Search logs"
+                  value={reminderSearch}
+                  onChange={(e) => setReminderSearch(e.target.value)}
+                  placeholder="Search student, subject, error"
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Status Filter</InputLabel>
+                  <Select
+                    value={reminderStatusFilter}
+                    label="Status Filter"
+                    onChange={async (e) => {
+                      const value = e.target.value
+                      setReminderStatusFilter(value)
+                      await fetchReminderLogs(1, value, reminderSearch)
+                    }}
+                    disabled={reminderLogsLoading}
+                  >
+                    <MenuItem value="all">All</MenuItem>
+                    <MenuItem value="sent">Sent only</MenuItem>
+                    <MenuItem value="failed">Failed only</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={4} sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  startIcon={<SearchIcon />}
+                  onClick={async () => fetchReminderLogs(1, reminderStatusFilter, reminderSearch)}
+                  disabled={reminderLogsLoading}
+                >
+                  Search
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={exportReminderLogsCsv}
+                  disabled={reminderLogsLoading || reminderLogs.length === 0}
+                >
+                  Export CSV
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteIcon />}
+                  onClick={deleteAllReminderLogs}
+                  disabled={deletingAllReminders || reminderLogsLoading || reminderLogs.length === 0}
+                >
+                  {deletingAllReminders ? 'Deleting...' : 'Delete All'}
+                </Button>
+              </Grid>
+            </Grid>
           </Box>
           {reminderLogsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
