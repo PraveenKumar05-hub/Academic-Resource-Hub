@@ -14,6 +14,7 @@ const TestSchema = new mongoose.Schema({
     enum: ['scheduled', 'completed', 'published', 'cancelled'],
     default: 'scheduled'
   },
+  targetQuestionsCount: { type: Number, required: true, min: 1, default: 10 },
   questionsCount: { type: Number, default: 0 },
   questions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TestQuestion' }],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

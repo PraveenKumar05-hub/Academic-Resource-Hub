@@ -12,35 +12,41 @@ function normalizeDepartment(value) {
   return String(value || '').trim().toUpperCase()
 }
 
+function buildLogsQuery(req) {
+  const search = String(req.query?.search || '').trim()
+  const action = String(req.query?.action || '').trim()
+  const entityType = String(req.query?.entityType || '').trim()
+
+  const query = {}
+
+  if (!isWebsiteManager(req.user)) {
+    query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+  }
+
+  if (action) {
+    query.action = new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+  }
+
+  if (entityType) {
+    query.entityType = new RegExp(entityType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+  }
+
+  if (search) {
+    query.$or = [
+      { summary: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+      { action: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+      { entityType: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+    ]
+  }
+
+  return query
+}
+
 router.get('/', verifyToken, requireRole('admin', 'hod', 'faculty'), async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query?.page || 1))
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 20)))
-    const search = String(req.query?.search || '').trim()
-    const action = String(req.query?.action || '').trim()
-    const entityType = String(req.query?.entityType || '').trim()
-
-    const query = {}
-
-    if (!isWebsiteManager(req.user)) {
-      query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
-    }
-
-    if (action) {
-      query.action = new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    }
-
-    if (entityType) {
-      query.entityType = new RegExp(entityType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    }
-
-    if (search) {
-      query.$or = [
-        { summary: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        { action: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        { entityType: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
-      ]
-    }
+    const query = buildLogsQuery(req)
 
     const total = await ActivityLog.countDocuments(query)
     const logs = await ActivityLog.find(query)
@@ -57,27 +63,7 @@ router.get('/', verifyToken, requireRole('admin', 'hod', 'faculty'), async (req,
 
 router.get('/export', verifyToken, requireRole('admin', 'hod', 'faculty'), async (req, res) => {
   try {
-    const search = String(req.query?.search || '').trim()
-    const action = String(req.query?.action || '').trim()
-    const entityType = String(req.query?.entityType || '').trim()
-
-    const query = {}
-    if (!isWebsiteManager(req.user)) {
-      query.department = new RegExp(`^${normalizeDepartment(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
-    }
-    if (action) {
-      query.action = new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    }
-    if (entityType) {
-      query.entityType = new RegExp(entityType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    }
-    if (search) {
-      query.$or = [
-        { summary: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        { action: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        { entityType: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
-      ]
-    }
+    const query = buildLogsQuery(req)
 
     const logs = await ActivityLog.find(query)
       .sort({ createdAt: -1 })
@@ -97,6 +83,41 @@ router.get('/export', verifyToken, requireRole('admin', 'hod', 'faculty'), async
     res.send(csv)
   } catch (err) {
     res.status(500).json({ message: err.message || 'Failed to export activity logs' })
+  }
+})
+
+router.delete('/', verifyToken, requireRole('admin', 'hod', 'faculty'), async (req, res) => {
+  try {
+    const query = buildLogsQuery(req)
+    const result = await ActivityLog.deleteMany(query)
+    return res.json({
+      message: 'Filtered activity logs deleted successfully',
+      deletedCount: result.deletedCount || 0
+    })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to delete filtered activity logs' })
+  }
+})
+
+router.delete('/:id', verifyToken, requireRole('admin', 'hod', 'faculty'), async (req, res) => {
+  try {
+    const log = await ActivityLog.findById(req.params.id)
+    if (!log) {
+      return res.status(404).json({ message: 'Activity log not found' })
+    }
+
+    if (!isWebsiteManager(req.user)) {
+      const userDept = normalizeDepartment(req.user.department)
+      const logDept = normalizeDepartment(log.department)
+      if (!logDept || logDept !== userDept) {
+        return res.status(403).json({ message: 'Cannot delete activity logs from other departments' })
+      }
+    }
+
+    await ActivityLog.findByIdAndDelete(log._id)
+    return res.json({ message: 'Activity log deleted successfully' })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to delete activity log' })
   }
 })
 

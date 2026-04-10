@@ -40,6 +40,7 @@ export default function Sidebar({ mobileOpen, onClose }) {
 
     ...(user?.role === 'faculty'
       ? [
+          { label: 'Students', path: '/faculty-students', icon: <PeopleIcon /> },
           { label: 'Upload Materials', path: '/upload-materials', icon: <CloudUploadIcon /> },
           { label: 'Verify Materials', path: '/faculty-verification', icon: <VerifiedUserIcon /> }
         ]

@@ -25,7 +25,9 @@ import {
 import HistoryIcon from '@mui/icons-material/History'
 import DownloadIcon from '@mui/icons-material/Download'
 import SearchIcon from '@mui/icons-material/Search'
+import DeleteIcon from '@mui/icons-material/Delete'
 import api from '../api'
+import { useAuth } from '../context/AuthContext'
 function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -36,6 +38,8 @@ function downloadBlob(filename, blob) {
 }
 
 export default function ActivityLogs() {
+  const { user } = useAuth()
+  const canDeleteLogs = user?.role === 'admin' || user?.role === 'hod' || user?.role === 'faculty'
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -88,6 +92,41 @@ export default function ActivityLogs() {
     })
   }
 
+  async function deleteLog(logId) {
+    if (!window.confirm('Delete this activity log?')) {
+      return
+    }
+
+    try {
+      await api.delete(`/activity-logs/${logId}`)
+      setSuccess('Activity log deleted successfully')
+      await fetchLogs(page)
+    } catch (err) {
+      setError(err.response?.data?.message || err.response?.data?.error || 'Failed to delete activity log')
+    }
+  }
+
+  async function deleteFilteredLogs() {
+    if (!window.confirm('Delete all logs matching current filters?')) {
+      return
+    }
+
+    try {
+      const params = {
+        search: search.trim() || undefined,
+        action: actionFilter !== 'all' ? actionFilter : undefined,
+        entityType: entityFilter !== 'all' ? entityFilter : undefined
+      }
+
+      const res = await api.delete('/activity-logs', { params })
+      const count = res.data?.deletedCount || 0
+      setSuccess(`Deleted ${count} filtered activity log(s)`)
+      await fetchLogs(1)
+    } catch (err) {
+      setError(err.response?.data?.message || err.response?.data?.error || 'Failed to delete filtered activity logs')
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / limit))
 
   return (
@@ -104,6 +143,11 @@ export default function ActivityLogs() {
           <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportLogs}>
             Export CSV
           </Button>
+          {canDeleteLogs && (
+            <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={deleteFilteredLogs}>
+              Delete Filtered
+            </Button>
+          )}
         </Box>
       </Box>
 
@@ -176,6 +220,7 @@ export default function ActivityLogs() {
                 <TableCell>Summary</TableCell>
                 <TableCell>Department</TableCell>
                 <TableCell>Actor</TableCell>
+                {canDeleteLogs && <TableCell align="center">Delete</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -187,6 +232,18 @@ export default function ActivityLogs() {
                   <TableCell>{log.summary}</TableCell>
                   <TableCell>{log.department || '-'}</TableCell>
                   <TableCell>{log.actor ? `${log.actor.name} (${log.actor.email})` : '-'}</TableCell>
+                  {canDeleteLogs && (
+                    <TableCell align="center">
+                      <Button
+                        color="error"
+                        size="small"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => deleteLog(log._id)}
+                      >
+                        Delete
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

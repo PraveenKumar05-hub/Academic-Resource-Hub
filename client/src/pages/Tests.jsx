@@ -35,11 +35,12 @@ import {
 } from '@mui/material'
 import QuizIcon from '@mui/icons-material/Quiz'
 import AddIcon from '@mui/icons-material/Add'
-import DownloadIcon from '@mui/icons-material/Download'
 import PublishIcon from '@mui/icons-material/Publish'
 import DeleteIcon from '@mui/icons-material/Delete'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ViewIcon from '@mui/icons-material/Visibility'
+import EditIcon from '@mui/icons-material/Edit'
+import EmailIcon from '@mui/icons-material/Email'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -83,10 +84,15 @@ export default function Tests() {
   const [openQuestions, setOpenQuestions] = useState(false)
   const [openTakeTest, setOpenTakeTest] = useState(false)
   const [openResults, setOpenResults] = useState(false)
+  const [openEditTargetDialog, setOpenEditTargetDialog] = useState(false)
+  const [openEmailSummaryDialog, setOpenEmailSummaryDialog] = useState(false)
   const [selectedTest, setSelectedTest] = useState(null)
   const [currentTestData, setCurrentTestData] = useState(null)
   const [studentAnswers, setStudentAnswers] = useState({})
   const [results, setResults] = useState(null)
+  const [emailSummary, setEmailSummary] = useState(null)
+  const [emailSummaryLoading, setEmailSummaryLoading] = useState(false)
+  const [targetQuestionInput, setTargetQuestionInput] = useState(10)
 
   const [filterSearch, setFilterSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -99,7 +105,8 @@ export default function Tests() {
     section: 'A',
     batch: '',
     testDate: '',
-    maxMarks: 0
+    maxMarks: 0,
+    targetQuestionsCount: 10
   })
 
   const [currentQuestion, setCurrentQuestion] = useState({
@@ -166,7 +173,8 @@ export default function Tests() {
       section: 'A',
       batch: '',
       testDate: '',
-      maxMarks: 0
+      maxMarks: 0,
+      targetQuestionsCount: 10
     })
     setQuestions([])
     setCurrentQuestion({
@@ -186,11 +194,17 @@ export default function Tests() {
       return
     }
 
+    if (questions.length !== Number(form.targetQuestionsCount)) {
+      setError(`Please add exactly ${form.targetQuestionsCount} questions before creating the test`)
+      return
+    }
+
     setSubmitting(true)
     try {
       const res = await api.post('/tests', {
         ...form,
         year: Number(form.year),
+        targetQuestionsCount: Number(form.targetQuestionsCount),
         maxMarks: questions.reduce((sum, q) => sum + q.marks, 0)
       })
 
@@ -213,6 +227,11 @@ export default function Tests() {
   }
 
   function addQuestion() {
+    if (questions.length >= Number(form.targetQuestionsCount || 0)) {
+      setError(`You selected ${form.targetQuestionsCount} questions for this test. Remove or change count to add more.`)
+      return
+    }
+
     if (!currentQuestion.questionText || currentQuestion.options.filter((o) => o.text).length < 2) {
       setError('Question text and at least 2 options are required')
       return
@@ -323,10 +342,65 @@ export default function Tests() {
     }
   }
 
+  function openEditTargetCount(test) {
+    setSelectedTest(test)
+    setTargetQuestionInput(Number(test.targetQuestionsCount || test.questionsCount || 1))
+    setOpenEditTargetDialog(true)
+  }
+
+  async function saveTargetQuestionCount() {
+    if (!selectedTest) return
+
+    const nextValue = Number(targetQuestionInput)
+    if (!Number.isFinite(nextValue) || nextValue < 1) {
+      setError('Enter a valid question count greater than 0')
+      return
+    }
+
+    try {
+      await api.patch(`/tests/${selectedTest._id}/target-questions`, {
+        targetQuestionsCount: nextValue
+      })
+      setSuccess('Target question count updated')
+      setOpenEditTargetDialog(false)
+      await loadTests(page)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update question count')
+    }
+  }
+
   async function viewResults(test) {
     try {
       const res = await api.get(`/tests/${test._id}/results`)
-      setResults(res.data.response || res.data.stats)
+
+      const payload = res.data || {}
+      const normalized = {
+        ...payload,
+        response:
+          payload.response ||
+          payload.data?.response ||
+          payload.result?.response ||
+          payload.payload?.response ||
+          null,
+        stats:
+          payload.stats ||
+          payload.data?.stats ||
+          payload.result?.stats ||
+          payload.payload?.stats ||
+          null,
+        submissions:
+          payload.submissions ||
+          payload.responses ||
+          payload.marks ||
+          payload.data?.submissions ||
+          payload.data?.responses ||
+          payload.result?.submissions ||
+          payload.result?.responses ||
+          payload.payload?.submissions ||
+          []
+      }
+
+      setResults(normalized)
       setSelectedTest(test)
       setOpenResults(true)
     } catch (err) {
@@ -334,14 +408,34 @@ export default function Tests() {
     }
   }
 
+  async function viewEmailSummary(test) {
+    setSelectedTest(test)
+    setEmailSummary(null)
+    setEmailSummaryLoading(true)
+    setOpenEmailSummaryDialog(true)
+    try {
+      const res = await api.get(`/tests/${test._id}/notification-summary`)
+      setEmailSummary(res.data || null)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load email summary')
+      setOpenEmailSummaryDialog(false)
+    } finally {
+      setEmailSummaryLoading(false)
+    }
+  }
+
   const publishedCount = useMemo(() => tests.filter((item) => item.status === 'published').length, [tests])
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit])
+  const resultRows = useMemo(() => {
+    if (!results || isStudent) return []
+    return results.submissions || []
+  }, [results, isStudent])
 
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, gap: 1, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <QuizIcon sx={{ color: '\''67eea'\'  }} />
+          <QuizIcon sx={{ color: '#667eea'}} />
           <Typography variant="h4" sx={{ fontWeight: 'bold' }}>Tests & Assessments</Typography>
         </Box>
         {canManage && (
@@ -405,7 +499,7 @@ export default function Tests() {
         <TableContainer component={Paper}>
           <Table>
             <TableHead>
-              <TableRow sx={{ backgroundColor: '\''f5f5f5'\'  }}>
+              <TableRow sx={{ backgroundColor: '#f5f5f5'}}>
                 <TableCell>Title</TableCell>
                 <TableCell>Subject</TableCell>
                 <TableCell>Class</TableCell>
@@ -421,20 +515,20 @@ export default function Tests() {
                   <TableCell>{test.title}</TableCell>
                   <TableCell>{test.subject}</TableCell>
                   <TableCell>{`Y${test.year} - ${test.section} - ${test.batch}`}</TableCell>
-                  <TableCell>{test.questionsCount || 0}</TableCell>
+                  <TableCell>{`${test.questionsCount || 0}${test.targetQuestionsCount ? ` / ${test.targetQuestionsCount}` : ''}`}</TableCell>
                   <TableCell>{test.maxMarks}</TableCell>
                   <TableCell><Chip size="small" color={getStatusColor(test.status)} label={test.status} /></TableCell>
                   <TableCell align="center">
                     {isStudent ? (
                       <>
-                        {test.status === '\''published'\'' && test.studentStatus !== '\''submitted'\'' && (
+                        {test.status === 'published' && test.studentStatus !== 'submitted' && (
                           <Tooltip title="Take Test">
                             <IconButton size="small" color="primary" onClick={() => openTest(test)}>
                               <PlayArrowIcon />
                             </IconButton>
                           </Tooltip>
                         )}
-                        {test.studentStatus === '\''submitted'\'' && (
+                        {test.studentStatus === 'submitted' && (
                           <Tooltip title="View Results">
                             <IconButton size="small" color="success" onClick={() => viewResults(test)}>
                               <ViewIcon />
@@ -447,16 +541,26 @@ export default function Tests() {
                         <Tooltip title="View Summary">
                           <Button size="small" onClick={() => viewResults(test)}>Summary</Button>
                         </Tooltip>
-                        {test.status === '\''scheduled'\'' && (
+                        <Tooltip title="Delete Test">
+                          <IconButton size="small" color="error" onClick={() => deleteTest(test._id)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                        {test.status === 'scheduled' && (
                           <>
+                            <Tooltip title="Mail Summary">
+                              <IconButton size="small" color="info" onClick={() => viewEmailSummary(test)}>
+                                <EmailIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Edit Question Count">
+                              <IconButton size="small" color="primary" onClick={() => openEditTargetCount(test)}>
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Publish Test">
                               <IconButton size="small" color="success" onClick={() => publishTest(test._id)}>
                                 <PublishIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete Test">
-                              <IconButton size="small" color="error" onClick={() => deleteTest(test._id)}>
-                                <DeleteIcon />
                               </IconButton>
                             </Tooltip>
                           </>
@@ -490,9 +594,18 @@ export default function Tests() {
             <Grid item xs={6}><TextField fullWidth margin="normal" label="Section" value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} /></Grid>
           </Grid>
           <TextField fullWidth margin="normal" label="Batch" value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} placeholder="e.g. 2023-2027" />
+          <TextField
+            fullWidth
+            margin="normal"
+            type="number"
+            label="Total Questions"
+            value={form.targetQuestionsCount}
+            onChange={(e) => setForm({ ...form, targetQuestionsCount: Number(e.target.value) })}
+            inputProps={{ min: 1, max: 200 }}
+          />
           <TextField fullWidth margin="normal" type="date" label="Test Date" InputLabelProps={{ shrink: true }} value={toDateInput(form.testDate)} onChange={(e) => setForm({ ...form, testDate: e.target.value })} />
 
-          <Box sx={{ mt: 2, p: 2, backgroundColor: '\''f5f5f5'\'  , borderRadius: 1 }}>
+          <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
             <Typography variant="h6">Add Questions</Typography>
             <TextField fullWidth margin="normal" label="Question Text" value={currentQuestion.questionText} onChange={(e) => setCurrentQuestion({ ...currentQuestion, questionText: e.target.value })} placeholder="Enter question..." multiline minRows={2} />
 
@@ -514,13 +627,13 @@ export default function Tests() {
                   size="small"
                   label={`Option ${String.fromCharCode(65 + idx)}`}
                   value={opt.text}
-                  onChange={(e) => updateOption(idx, '\''text'\'  , e.target.value)}
+                  onChange={(e) => updateOption(idx, 'text', e.target.value)}
                 />
                 <FormControlLabel
                   control={
                     <Checkbox
                       checked={opt.isCorrect}
-                      onChange={(e) => updateOption(idx, '\''isCorrect'\'  , e.target.checked)}
+                      onChange={(e) => updateOption(idx, 'isCorrect', e.target.checked)}
                     />
                   }
                   label="Correct"
@@ -531,8 +644,14 @@ export default function Tests() {
 
             <TextField fullWidth margin="normal" label="Explanation (Optional)" value={currentQuestion.explanation} onChange={(e) => setCurrentQuestion({ ...currentQuestion, explanation: e.target.value })} multiline minRows={2} />
 
-            <Button variant="contained" fullWidth onClick={addQuestion} sx={{ mt: 2 }}>
-              Add Question ({questions.length}/10)
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={addQuestion}
+              sx={{ mt: 2 }}
+              disabled={questions.length >= Number(form.targetQuestionsCount || 0)}
+            >
+              Add Question ({questions.length}/{form.targetQuestionsCount || 0})
             </Button>
           </Box>
 
@@ -540,7 +659,7 @@ export default function Tests() {
             <Box sx={{ mt: 2 }}>
               <Typography variant="subtitle2">Questions Added: {questions.length}</Typography>
               {questions.map((q, idx) => (
-                <Box key={idx} sx={{ p: 1, mb: 1, backgroundColor: '\''eee'\'  , borderRadius: 1 }}>
+                <Box key={idx} sx={{ p: 1, mb: 1, backgroundColor: '#eee', borderRadius: 1 }}>
                   <Typography variant="body2">{idx + 1}. {q.questionText.substring(0, 50)}... ({q.marks} marks)</Typography>
                 </Box>
               ))}
@@ -549,8 +668,12 @@ export default function Tests() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenCreate(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createTest} disabled={submitting || questions.length === 0}>
-            {submitting ? <CircularProgress size={20} /> : '\''Create Test'\''}
+          <Button
+            variant="contained"
+            onClick={createTest}
+            disabled={submitting || questions.length !== Number(form.targetQuestionsCount || 0)}
+          >
+            {submitting ? <CircularProgress size={20} /> : 'Create Test'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -568,9 +691,9 @@ export default function Tests() {
                   <Typography variant="body1" sx={{ fontWeight: 'bold', mb: 1 }}>
                     Q{question.questionNumber}. {question.questionText} ({question.marks} marks)
                   </Typography>
-                  {question.questionType === '\''single'\'' ? (
+                  {question.questionType === 'single' ? (
                     <RadioGroup
-                      value={studentAnswers[question._id]?.[0] || '\'''\'' }
+                      value={studentAnswers[question._id]?.[0] || ''}
                       onChange={(e) => handleAnswerChange(question._id, [e.target.value])}
                     >
                       {question.options.map((opt) => (
@@ -613,7 +736,7 @@ export default function Tests() {
         <DialogActions>
           <Button onClick={() => setOpenTakeTest(false)}>Back</Button>
           <Button variant="contained" color="success" onClick={submitTest} disabled={submitting}>
-            {submitting ? <CircularProgress size={20} /> : '\''Submit Test'\''}
+            {submitting ? <CircularProgress size={20} /> : 'Submit Test'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -622,30 +745,123 @@ export default function Tests() {
       <Dialog open={openResults} onClose={() => setOpenResults(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Results</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          {results && (
+          {results && isStudent && results.response && (
             <Grid container spacing={2}>
-              {isStudent ? (
-                <>
-                  <Grid item xs={6}><Chip label={`Marks: ${results.totalMarks}`} color="primary" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Percentage: ${results.percentage}%`} color="secondary" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Correct: ${results.totalCorrect}`} color="success" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Submitted: ${new Date(results.submittedAt).toLocaleDateString()}`} variant="outlined" /></Grid>
-                </>
-              ) : (
-                <>
-                  <Grid item xs={6}><Chip label={`Total Students: ${results.totalStudents || results.totalResponses || 0}`} color="default" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Submitted: ${results.submitted || results.submittedCount || 0}`} color="primary" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Pass: ${results.passCount || 0}`} color="success" variant="outlined" /></Grid>
-                  <Grid item xs={6}><Chip label={`Avg Marks: ${results.averageMarks || 0}`} color="info" variant="outlined" /></Grid>
-                </>
-              )}
+              <Grid item xs={6}><Chip label={`Marks: ${results.response.totalMarks}`} color="primary" variant="outlined" /></Grid>
+              <Grid item xs={6}><Chip label={`Percentage: ${results.response.percentage}%`} color="secondary" variant="outlined" /></Grid>
+              <Grid item xs={6}><Chip label={`Correct: ${results.response.totalCorrect}`} color="success" variant="outlined" /></Grid>
+              <Grid item xs={6}><Chip label={`Attempted: ${results.response.totalAttempted}`} color="default" variant="outlined" /></Grid>
+              <Grid item xs={12}><Chip label={`Submitted: ${results.response.submittedAt ? new Date(results.response.submittedAt).toLocaleString() : '-'}`} variant="outlined" /></Grid>
             </Grid>
+          )}
+
+          {results && !isStudent && (
+            <Box>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={6}><Chip label={`Responses: ${results.stats?.totalResponses || 0}`} color="default" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Submitted: ${results.stats?.submittedCount || 0}`} color="primary" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Pass: ${results.stats?.passCount || 0}`} color="success" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Avg Marks: ${results.stats?.averageMarks || 0}`} color="info" variant="outlined" /></Grid>
+              </Grid>
+
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Student</TableCell>
+                      <TableCell>Email</TableCell>
+                      <TableCell>Marks</TableCell>
+                      <TableCell>Percentage</TableCell>
+                      <TableCell>Submitted At</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {resultRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} align="center">No submissions yet</TableCell>
+                      </TableRow>
+                    ) : (
+                      resultRows.map((item) => (
+                        <TableRow key={item._id}>
+                          <TableCell>{item.student?.name || item.studentName || item.name || '-'}</TableCell>
+                          <TableCell>{item.student?.email || item.email || '-'}</TableCell>
+                          <TableCell>{item.totalMarks ?? item.marks ?? '-'}</TableCell>
+                          <TableCell>{item.percentage != null ? `${item.percentage}%` : '-'}</TableCell>
+                          <TableCell>{item.submittedAt ? new Date(item.submittedAt).toLocaleString() : '-'}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenResults(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog open={openEditTargetDialog} onClose={() => setOpenEditTargetDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit Total Questions</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+            {[10, 20, 30, 50].map((preset) => (
+              <Button
+                key={preset}
+                size="small"
+                variant={Number(targetQuestionInput) === preset ? 'contained' : 'outlined'}
+                onClick={() => setTargetQuestionInput(preset)}
+              >
+                {preset}
+              </Button>
+            ))}
+          </Box>
+          <TextField
+            fullWidth
+            type="number"
+            label="Total Questions"
+            value={targetQuestionInput}
+            onChange={(e) => setTargetQuestionInput(Number(e.target.value))}
+            inputProps={{ min: selectedTest?.questionsCount || 1, max: 200 }}
+            helperText={`Minimum allowed is already added count: ${selectedTest?.questionsCount || 0}`}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditTargetDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveTargetQuestionCount}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openEmailSummaryDialog} onClose={() => setOpenEmailSummaryDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Email Delivery Summary</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {emailSummaryLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : emailSummary?.summary ? (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>{emailSummary?.test?.title || selectedTest?.title}</Typography>
+              <Grid container spacing={1.2}>
+                <Grid item xs={6}><Chip label={`Recipients: ${emailSummary.summary.totalRecipients ?? 0}`} variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Sent: ${emailSummary.summary.sent ?? 0}`} color="success" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Skipped: ${emailSummary.summary.skipped ?? 0}`} color="warning" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Failed: ${emailSummary.summary.failed ?? 0}`} color="error" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Disabled: ${emailSummary.summary.disabled ?? 0}`} color="default" variant="outlined" /></Grid>
+                <Grid item xs={6}><Chip label={`Pending: ${emailSummary.summary.pending ?? 0}`} color="info" variant="outlined" /></Grid>
+              </Grid>
+            </Box>
+          ) : (
+            <Typography color="text.secondary">No email summary available for this test.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEmailSummaryDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
+
+

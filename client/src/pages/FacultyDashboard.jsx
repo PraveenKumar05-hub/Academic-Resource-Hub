@@ -52,7 +52,6 @@ export default function FacultyDashboard() {
   const [dept, setDept] = React.useState(null);
   const [assignments, setAssignments] = React.useState([]);
   const [students, setStudents] = React.useState([]);
-  const [yearFilter, setYearFilter] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const commonBatchOptions = React.useMemo(() => generateCommonBatchOptions(), []);
 
@@ -188,21 +187,6 @@ export default function FacultyDashboard() {
     }
   }
 
-  const availableYears = Array.from(
-    new Set(students.map((student) => Number(student.year)).filter(Boolean))
-  ).sort((a, b) => a - b);
-
-  React.useEffect(() => {
-    if (!yearFilter && availableYears.length > 0) {
-      setYearFilter(String(availableYears[0]));
-    }
-  }, [availableYears, yearFilter]);
-
-  const filteredStudents =
-    !yearFilter
-      ? []
-      : students.filter((student) => String(student.year || '') === yearFilter);
-
   const StatCard = ({ icon: Icon, label, value, color }) => (
     <Grid item xs={12} sm={6} md={4}>
       <Card sx={{ background: `linear-gradient(135deg, ${color}18, ${color}08)`, border: `1px solid ${color}33` }}>
@@ -254,8 +238,22 @@ export default function FacultyDashboard() {
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <StatCard icon={AssignmentIcon} label="Assignments" value={assignments.length} color="#e74c3c" />
           <StatCard icon={PeopleIcon} label="Students" value={students.length} color="#2980b9" />
-          <StatCard icon={SchoolIcon} label="Visible Students" value={filteredStudents.length} color="#16a085" />
+          <StatCard icon={SchoolIcon} label="Department" value={dept ? '1' : '0'} color="#16a085" />
         </Grid>
+
+        <Card sx={{ mb: 3 }}>
+          <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="h6">Students moved to dedicated page</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Use the Students page to view year-wise student lists.
+              </Typography>
+            </Box>
+            <Button component={Link} to="/faculty-students" variant="outlined" startIcon={<PeopleIcon />}>
+              Open Students List
+            </Button>
+          </CardContent>
+        </Card>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
@@ -307,65 +305,6 @@ export default function FacultyDashboard() {
               </Card>
             </Grid>
 
-            {/* Students Table */}
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="h6">Students — {dept}</Typography>
-                    <FormControl size="small" sx={{ minWidth: 150 }}>
-                      <InputLabel>Year</InputLabel>
-                      <Select
-                        value={yearFilter}
-                        label="Year"
-                        onChange={(e) => setYearFilter(e.target.value)}
-                      >
-                        {availableYears.map((year) => (
-                          <MenuItem key={year} value={String(year)}>{`Year ${year}`}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Box>
-                  {!yearFilter ? (
-                    <Typography variant="body2" color="text.secondary">Select a year to view students</Typography>
-                  ) : filteredStudents.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">No students found for selected year</Typography>
-                  ) : (
-                    <TableContainer component={Paper}>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Name</TableCell>
-                            <TableCell>Email</TableCell>
-                            <TableCell>Phone</TableCell>
-                            <TableCell>Year</TableCell>
-                            <TableCell>Section</TableCell>
-                            <TableCell>Academic Batch</TableCell>
-                            <TableCell align="center">Actions</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {filteredStudents.map(s => (
-                            <TableRow key={s._id}>
-                              <TableCell>{s.name}</TableCell>
-                              <TableCell>{s.email}</TableCell>
-                              <TableCell>{s.phone || '-'}</TableCell>
-                              <TableCell>{s.year || '-'}</TableCell>
-                              <TableCell>{s.section || '-'}</TableCell>
-                              <TableCell>{s.batch || '-'}</TableCell>
-                              <TableCell align="center">
-                                <Button size="small" startIcon={<EditIcon />} sx={{ mr: 1 }} onClick={() => openEditStudentDialog(s)}>Edit</Button>
-                                <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => deleteStudent(s._id)}>Delete</Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
           </Grid>
         )}
 

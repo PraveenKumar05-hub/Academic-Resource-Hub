@@ -5,9 +5,11 @@ const TestQuestion = require('../models/TestQuestion')
 const StudentTestResponse = require('../models/StudentTestResponse')
 const TestMark = require('../models/TestMark')
 const User = require('../models/User')
+const Notification = require('../models/Notification')
 const { verifyToken, requireRole } = require('../middleware/auth')
 const { toCsv } = require('../utils/csv')
 const { logActivity } = require('../utils/activityLogger')
+const { sendReminderEmail } = require('../utils/reminderEmail')
 
 function isWebsiteManager(user) {
   return user?.role === 'admin' && !user?.department
@@ -23,6 +25,12 @@ function escapeRegex(value) {
 
 function isDepartmentScopedRole(user) {
   return user?.role === 'faculty' || user?.role === 'hod' || (user?.role === 'admin' && !!user?.department)
+}
+
+function toDisplayDate(dateValue) {
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString()
 }
 
 function buildTestsFilter(req) {
@@ -76,10 +84,11 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
       section,
       batch,
       testDate,
-      maxMarks
+      maxMarks,
+      targetQuestionsCount
     } = req.body || {}
 
-    if (!title || !subject || !year || !section || !batch || !testDate || !maxMarks) {
+    if (!title || !subject || !year || !section || !batch || !testDate || !maxMarks || !targetQuestionsCount) {
       return res.status(400).json({ message: 'Missing required fields' })
     }
 
@@ -97,12 +106,17 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
 
     const parsedYear = Number(year)
     const parsedMaxMarks = Number(maxMarks)
+    const parsedTargetQuestionsCount = Number(targetQuestionsCount)
     if (!Number.isFinite(parsedYear) || parsedYear < 1 || parsedYear > 4) {
       return res.status(400).json({ message: 'Year must be between 1 and 4' })
     }
 
     if (!Number.isFinite(parsedMaxMarks) || parsedMaxMarks <= 0) {
       return res.status(400).json({ message: 'maxMarks must be greater than 0' })
+    }
+
+    if (!Number.isFinite(parsedTargetQuestionsCount) || parsedTargetQuestionsCount < 1 || parsedTargetQuestionsCount > 200) {
+      return res.status(400).json({ message: 'targetQuestionsCount must be between 1 and 200' })
     }
 
     const test = await Test.create({
@@ -114,6 +128,7 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
       batch: String(batch).trim(),
       testDate: new Date(testDate),
       maxMarks: parsedMaxMarks,
+      targetQuestionsCount: parsedTargetQuestionsCount,
       status: 'scheduled',
       createdBy: req.user._id,
       updatedAt: new Date()
@@ -127,6 +142,190 @@ router.post('/', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req
       summary: `Created test ${test.title} for year ${test.year} section ${test.section}`,
       department: test.department,
       metadata: { subject: test.subject, batch: test.batch, testDate: test.testDate }
+    })
+
+    // Notify target class students by email asynchronously
+    setImmediate(async () => {
+      try {
+        const classStudents = await User.find({
+          role: 'student',
+          department: new RegExp(`^${escapeRegex(test.department)}$`, 'i'),
+          year: test.year,
+          section: new RegExp(`^${escapeRegex(test.section)}$`, 'i'),
+          batch: new RegExp(`^${escapeRegex(test.batch)}$`, 'i')
+        }).select('name email')
+
+        const notificationTitle = `Test Scheduled: ${test.title}`
+        const notificationMessage = [
+          `A new test has been scheduled for your class.`,
+          `Subject: ${test.subject}`,
+          `Date & Time: ${toDisplayDate(test.testDate)}`,
+          `Class: Year ${test.year} - Section ${test.section} - Batch ${test.batch}`,
+          `Questions: ${test.targetQuestionsCount || test.questionsCount || 0}`,
+          `Total Marks: ${test.maxMarks}`
+        ].join('\n')
+
+        let createdNotifications = []
+        if (classStudents.length > 0) {
+          const inAppNotifications = classStudents.map((student) => ({
+            user: student._id,
+            title: notificationTitle,
+            message: notificationMessage,
+            type: 'info',
+            test: test._id,
+            recipientRole: 'student',
+            recipientYear: test.year,
+            department: test.department,
+            createdBy: req.user._id,
+            emailStatus: 'not_attempted'
+          }))
+          createdNotifications = await Notification.insertMany(inAppNotifications)
+        }
+
+        const notificationIdByUser = new Map(
+          (createdNotifications || []).map((n) => [String(n.user), n._id])
+        )
+
+        let sentCount = 0
+        let skippedCount = 0
+        let failedCount = 0
+        let disabledCount = 0
+
+        const subjectLine = `New Test Scheduled: ${test.title}`
+        const textBody = [
+          `A new test has been scheduled for your class.`,
+          '',
+          `Title: ${test.title}`,
+          `Subject: ${test.subject}`,
+          `Date & Time: ${toDisplayDate(test.testDate)}`,
+          `Class: Year ${test.year} - Section ${test.section} - Batch ${test.batch}`,
+          `Questions: ${test.targetQuestionsCount || test.questionsCount || 0}`,
+          `Total Marks: ${test.maxMarks}`,
+          '',
+          `Please log in to the Academic Resource Hub to attend the test when it is published.`
+        ].join('\n')
+
+        const htmlBody = `
+          <h3>New Test Scheduled</h3>
+          <p>A new test has been scheduled for your class.</p>
+          <ul>
+            <li><strong>Title:</strong> ${test.title}</li>
+            <li><strong>Subject:</strong> ${test.subject}</li>
+            <li><strong>Date & Time:</strong> ${toDisplayDate(test.testDate)}</li>
+            <li><strong>Class:</strong> Year ${test.year} - Section ${test.section} - Batch ${test.batch}</li>
+            <li><strong>Questions:</strong> ${test.targetQuestionsCount || test.questionsCount || 0}</li>
+            <li><strong>Total Marks:</strong> ${test.maxMarks}</li>
+          </ul>
+          <p>Please log in to the Academic Resource Hub to attend the test when it is published.</p>
+        `
+
+        for (const student of classStudents) {
+          const notificationId = notificationIdByUser.get(String(student._id))
+          const recipientEmail = String(student.email || '').trim().toLowerCase()
+          if (!recipientEmail) {
+            skippedCount += 1
+            if (notificationId) {
+              await Notification.updateOne(
+                { _id: notificationId },
+                {
+                  emailStatus: 'skipped_no_email',
+                  emailError: 'Student has no email address'
+                }
+              )
+            }
+            continue
+          }
+
+          try {
+            const sendResult = await sendReminderEmail(recipientEmail, subjectLine, textBody, htmlBody)
+            if (sendResult?.sent) {
+              sentCount += 1
+              if (notificationId) {
+                await Notification.updateOne(
+                  { _id: notificationId },
+                  {
+                    emailStatus: 'sent',
+                    emailError: null,
+                    emailSentAt: new Date()
+                  }
+                )
+              }
+            } else if (sendResult?.reason === 'email_not_configured') {
+              disabledCount += 1
+              if (notificationId) {
+                await Notification.updateOne(
+                  { _id: notificationId },
+                  {
+                    emailStatus: 'disabled',
+                    emailError: 'SMTP is not configured'
+                  }
+                )
+              }
+            } else if (sendResult?.reason === 'invalid_email') {
+              skippedCount += 1
+              if (notificationId) {
+                await Notification.updateOne(
+                  { _id: notificationId },
+                  {
+                    emailStatus: 'invalid_email',
+                    emailError: 'Invalid email address'
+                  }
+                )
+              }
+            } else {
+              failedCount += 1
+              if (notificationId) {
+                await Notification.updateOne(
+                  { _id: notificationId },
+                  {
+                    emailStatus: 'failed',
+                    emailError: sendResult?.reason || 'Unknown email sending error'
+                  }
+                )
+              }
+            }
+          } catch (mailErr) {
+            failedCount += 1
+            if (notificationId) {
+              await Notification.updateOne(
+                { _id: notificationId },
+                {
+                  emailStatus: 'failed',
+                  emailError: mailErr?.message || 'Failed to send email'
+                }
+              )
+            }
+          }
+        }
+
+        await logActivity({
+          actor: req.user,
+          action: 'test_schedule_notification_create',
+          entityType: 'notification',
+          entityId: test._id,
+          summary: `Created in-app test notifications for ${classStudents.length} students`,
+          department: test.department,
+          metadata: { recipients: classStudents.length }
+        })
+
+        await logActivity({
+          actor: req.user,
+          action: 'test_schedule_email_dispatch',
+          entityType: 'test',
+          entityId: test._id,
+          summary: `Scheduled-test emails processed for ${classStudents.length} students`,
+          department: test.department,
+          metadata: {
+            recipients: classStudents.length,
+            sent: sentCount,
+            skipped: skippedCount,
+            failed: failedCount,
+            disabled: disabledCount
+          }
+        })
+      } catch (dispatchErr) {
+        console.error('Failed to dispatch test schedule emails:', dispatchErr)
+      }
     })
 
     return res.status(201).json({ test })
@@ -149,6 +348,10 @@ router.post('/:id/questions', verifyToken, requireRole('faculty', 'hod', 'admin'
 
     if (test.status !== 'scheduled') {
       return res.status(400).json({ message: 'Can only add questions to scheduled tests' })
+    }
+
+    if ((test.questionsCount || 0) >= (test.targetQuestionsCount || 0)) {
+      return res.status(400).json({ message: `This test is limited to ${test.targetQuestionsCount} questions` })
     }
 
     const { questionText, questionType, options, marks, explanation } = req.body || {}
@@ -196,6 +399,54 @@ router.post('/:id/questions', verifyToken, requireRole('faculty', 'hod', 'admin'
     return res.status(201).json({ question, test })
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Failed to add question' })
+  }
+})
+
+// Update selected question count before publish
+router.patch('/:id/target-questions', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
+  try {
+    const test = await Test.findById(req.params.id)
+    if (!test) {
+      return res.status(404).json({ message: 'Test not found' })
+    }
+
+    if (!isWebsiteManager(req.user) && normalizeText(test.department) !== normalizeText(req.user.department)) {
+      return res.status(403).json({ message: 'Cannot update tests in other departments' })
+    }
+
+    if (test.status !== 'scheduled') {
+      return res.status(400).json({ message: 'Question count can be changed only for scheduled tests' })
+    }
+
+    const nextCount = Number(req.body?.targetQuestionsCount)
+    if (!Number.isFinite(nextCount) || nextCount < 1 || nextCount > 200) {
+      return res.status(400).json({ message: 'targetQuestionsCount must be between 1 and 200' })
+    }
+
+    const currentCount = Number(test.questionsCount || 0)
+    if (nextCount < currentCount) {
+      return res.status(400).json({
+        message: `Cannot set target lower than already added questions (${currentCount})`
+      })
+    }
+
+    test.targetQuestionsCount = nextCount
+    test.updatedAt = new Date()
+    await test.save()
+
+    await logActivity({
+      actor: req.user,
+      action: 'test_target_questions_update',
+      entityType: 'test',
+      entityId: test._id,
+      summary: `Updated target questions for ${test.title} to ${nextCount}`,
+      department: test.department,
+      metadata: { targetQuestionsCount: nextCount }
+    })
+
+    return res.json({ message: 'Target question count updated', test })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to update target question count' })
   }
 })
 
@@ -419,10 +670,27 @@ router.get('/:id/results', verifyToken, async (req, res) => {
         return res.status(404).json({ message: 'No test attempt found' })
       }
 
-      // Only allow viewing if test is published
-      if (test.status !== 'published') {
-        return res.status(403).json({ message: 'Results not available yet' })
+      if (response.status !== 'submitted') {
+        return res.status(400).json({ message: 'You have not submitted this test yet' })
       }
+
+      return res.json({
+        test: {
+          _id: test._id,
+          title: test.title,
+          subject: test.subject,
+          maxMarks: test.maxMarks,
+          questionsCount: test.questionsCount,
+          status: test.status
+        },
+        response: {
+          totalMarks: response.totalMarks,
+          totalCorrect: response.totalCorrect,
+          totalAttempted: response.totalAttempted,
+          percentage: response.percentage,
+          submittedAt: response.submittedAt
+        }
+      })
     } else if (req.user.role === 'faculty' || req.user.role === 'hod' || req.user.role === 'admin') {
       // Faculty/HOD/Admin can view stats for their department
       if (!isWebsiteManager(req.user) && normalizeText(test.department) !== normalizeText(req.user.department)) {
@@ -433,12 +701,55 @@ router.get('/:id/results', verifyToken, async (req, res) => {
       const allResponses = await StudentTestResponse.find({
         test: test._id,
         status: 'submitted'
-      })
+      }).populate('student', 'name email year section batch')
+
+      const responseStudentIds = Array.from(
+        new Set(
+          allResponses
+            .map((r) => String(r.student?._id || r.student || ''))
+            .filter(Boolean)
+        )
+      )
+
+      const studentDocs = responseStudentIds.length
+        ? await User.find({ _id: { $in: responseStudentIds } }).select('name email year section batch')
+        : []
+      const studentById = new Map(studentDocs.map((u) => [String(u._id), u]))
 
       const totalResponses = allResponses.length
       const totalMarks = allResponses.reduce((sum, r) => sum + (r.totalMarks || 0), 0)
       const averageMarks = totalResponses > 0 ? (totalMarks / totalResponses).toFixed(2) : 0
       const passCount = allResponses.filter((r) => r.totalMarks >= test.maxMarks * 0.4).length
+
+      const submissions = allResponses
+        .sort((a, b) => new Date(b.submittedAt || b.updatedAt) - new Date(a.submittedAt || a.updatedAt))
+        .map((r) => ({
+          ...(function resolveStudent() {
+            const id = String(r.student?._id || r.student || '')
+            const fromPopulate = r.student && typeof r.student === 'object' && r.student.name
+              ? r.student
+              : null
+            const fallback = id ? studentById.get(id) : null
+            const resolved = fromPopulate || fallback || null
+            return {
+              student: resolved
+                ? {
+                    name: resolved.name,
+                    email: resolved.email,
+                    year: resolved.year,
+                    section: resolved.section,
+                    batch: resolved.batch
+                  }
+                : null
+            }
+          })(),
+          _id: r._id,
+          totalMarks: r.totalMarks,
+          percentage: r.percentage,
+          totalCorrect: r.totalCorrect,
+          totalAttempted: r.totalAttempted,
+          submittedAt: r.submittedAt
+        }))
 
       return res.json({
         test: {
@@ -455,26 +766,12 @@ router.get('/:id/results', verifyToken, async (req, res) => {
           averageMarks,
           passCount,
           failCount: totalResponses - passCount
-        }
+        },
+        submissions
       })
     }
 
-    // Return individual response for viewing
-    return res.json({
-      test: {
-        _id: test._id,
-        title: test.title,
-        subject: test.subject,
-        maxMarks: test.maxMarks,
-        status: test.status
-      },
-      response: {
-        totalMarks: response.totalMarks,
-        totalCorrect: response.totalCorrect,
-        percentage: response.percentage,
-        submittedAt: response.submittedAt
-      }
-    })
+    return res.status(403).json({ message: 'You are not allowed to view this result' })
   } catch (err) {
     return res.status(500).json({ message: err.message || 'Failed to fetch results' })
   }
@@ -681,6 +978,87 @@ router.get('/:id/summary', verifyToken, requireRole('faculty', 'hod', 'admin'), 
   }
 })
 
+// Get scheduled test notification email summary
+router.get('/:id/notification-summary', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
+  try {
+    const test = await Test.findById(req.params.id)
+    if (!test) {
+      return res.status(404).json({ message: 'Test not found' })
+    }
+
+    if (!isWebsiteManager(req.user) && normalizeText(test.department) !== normalizeText(req.user.department)) {
+      return res.status(403).json({ message: 'Cannot access notification summary for other departments' })
+    }
+
+    const fallbackTitle = `Test Scheduled: ${test.title}`
+    const statusGroups = await Notification.aggregate([
+      {
+        $match: {
+          $or: [
+            { test: test._id, recipientRole: 'student' },
+            {
+              test: { $exists: false },
+              title: fallbackTitle,
+              recipientRole: 'student',
+              recipientYear: test.year,
+              department: new RegExp(`^${escapeRegex(test.department)}$`, 'i'),
+              createdBy: test.createdBy
+            }
+          ]
+        }
+      },
+      {
+        $group: {
+          _id: '$emailStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ])
+
+    const statusCount = {
+      not_attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped_no_email: 0,
+      disabled: 0,
+      invalid_email: 0
+    }
+
+    for (const item of statusGroups) {
+      if (item?._id && Object.prototype.hasOwnProperty.call(statusCount, item._id)) {
+        statusCount[item._id] = item.count
+      }
+    }
+
+    const totalRecipients = Object.values(statusCount).reduce((sum, value) => sum + value, 0)
+    const skipped = statusCount.skipped_no_email + statusCount.invalid_email
+
+    return res.json({
+      test: {
+        _id: test._id,
+        title: test.title,
+        subject: test.subject,
+        status: test.status,
+        testDate: test.testDate,
+        year: test.year,
+        section: test.section,
+        batch: test.batch
+      },
+      summary: {
+        totalRecipients,
+        sent: statusCount.sent,
+        skipped,
+        failed: statusCount.failed,
+        disabled: statusCount.disabled,
+        pending: statusCount.not_attempted,
+        statusBreakdown: statusCount
+      }
+    })
+  } catch (err) {
+    return res.status(500).json({ message: err.message || 'Failed to fetch notification summary' })
+  }
+})
+
 // Get test with questions details (for editing)
 router.get('/:id/edit', verifyToken, requireRole('faculty', 'hod', 'admin'), async (req, res) => {
   try {
@@ -723,6 +1101,12 @@ router.post('/:id/publish', verifyToken, requireRole('faculty', 'hod', 'admin'),
 
     if (!test.questionsCount || test.questionsCount === 0) {
       return res.status(400).json({ message: 'Test must have at least one question' })
+    }
+
+    if (test.targetQuestionsCount && test.questionsCount !== test.targetQuestionsCount) {
+      return res.status(400).json({
+        message: `Add exactly ${test.targetQuestionsCount} questions before publishing (currently ${test.questionsCount})`
+      })
     }
 
     test.status = 'published'

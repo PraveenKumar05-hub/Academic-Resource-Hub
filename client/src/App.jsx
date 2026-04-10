@@ -4,7 +4,6 @@ import { Box, CssBaseline, IconButton, ThemeProvider, createTheme } from '@mui/m
 import MenuIcon from '@mui/icons-material/Menu'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { ThemeModeProvider, useThemeMode } from './context/ThemeModeContext'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -23,6 +22,7 @@ import ResetPassword from './pages/ResetPassword'
 import UploadMaterials from './pages/UploadMaterials'
 import ViewMaterials from './pages/ViewMaterials'
 import FacultyVerification from './pages/FacultyVerification'
+import FacultyStudents from './pages/FacultyStudents'
 import Profile from './pages/Profile'
 import WebsiteManagerDashboard from './pages/WebsiteManagerDashboard'
 import RegisterDepartmentAdmin from './pages/RegisterDepartmentAdmin'
@@ -31,13 +31,12 @@ import RegisterWebsiteManager from './pages/RegisterWebsiteManager'
 function AppContent() {
   const { user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { mode } = useThemeMode()
 
   const isAuthenticated = !!user
 
   const theme = createTheme({
     palette: {
-      mode,
+      mode: 'light',
       primary: { main: '#667eea' }
     }
   })
@@ -235,6 +234,15 @@ function AppContent() {
                   }
                 />
 
+                <Route
+                  path="/faculty-students"
+                  element={
+                    <ProtectedRoute allowedRoles={['faculty']}>
+                      <FacultyStudents />
+                    </ProtectedRoute>
+                  }
+                />
+
                 <Route path="*" element={<Navigate to="/dashboard" />} />
               </>
             )}
@@ -249,11 +257,9 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ThemeModeProvider>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
-      </ThemeModeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
     </BrowserRouter>
   )
 }

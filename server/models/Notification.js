@@ -25,6 +25,7 @@ const NotificationSchema = new mongoose.Schema({
   emailError: { type: String },
   emailSentAt: { type: Date },
   type: { type: String, enum: ['announcement', 'urgent', 'info'], default: 'info' },
+  test: { type: mongoose.Schema.Types.ObjectId, ref: 'Test' },
   assignment: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment' },
   department: { type: String },
   recipientRole: { type: String, enum: ['student', 'faculty', 'admin', 'all'], default: 'all' },
